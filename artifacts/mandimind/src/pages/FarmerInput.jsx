@@ -8,8 +8,10 @@ export default function FarmerInput() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const cropId  = searchParams.get("crop")  || "";
-  const mandi   = searchParams.get("mandi") || "";
+  const cropId    = searchParams.get("crop")  || "";
+  const mandi     = searchParams.get("mandi") || "";
+  const stateVal  = searchParams.get("state") || "Maharashtra";
+
   const cropInfo  = getCropById(cropId);
   const varieties = getVarietiesByCrop(cropId);
 
@@ -23,7 +25,8 @@ export default function FarmerInput() {
   const handleSubmit = () => {
     if (quality && harvest && storage && urgency) {
       const params = new URLSearchParams({
-        crop: cropId, mandi, variety, quality, harvest, storage, urgency,
+        crop: cropId, mandi, state: stateVal, variety,
+        quality, harvest, storage, urgency,
         quantity: quantity || "0",
       });
       navigate(`/decision?${params.toString()}`);
@@ -32,138 +35,109 @@ export default function FarmerInput() {
 
   const isFormValid = quality && harvest && storage && urgency;
 
-  const RadioGroup = ({ label, options, value, onChange }) => (
+  const RadioGroup = ({ options, value, onChange }) => (
+    <div className="flex gap-2 flex-wrap">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={`flex-1 py-3 px-2 rounded-xl text-sm font-semibold border transition-all flex flex-col items-center gap-0.5 ${
+            value === opt.value
+              ? "bg-[#004c22] text-white border-[#004c22]"
+              : "bg-white text-[#1e1c10] border-gray-300 active:bg-gray-50"
+          }`}
+          style={{ fontFamily: "Be Vietnam Pro, sans-serif", minHeight: "52px" }}
+        >
+          {opt.icon && <span className="text-base leading-none">{opt.icon}</span>}
+          <span>{opt.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  const Section = ({ label, children }) => (
     <div className="mb-5">
-      <label
-        className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-2"
-        style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-      >
+      <label className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-2"
+        style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
         {label}
       </label>
-      <div className="flex gap-2 flex-wrap">
-        {options.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => onChange(opt.value)}
-            className={`flex-1 py-3 px-2 rounded-xl text-sm font-medium border transition-all ${
-              value === opt.value
-                ? "bg-[#004c22] text-white border-[#004c22]"
-                : "bg-white text-[#1e1c10] border-gray-300 active:bg-gray-50"
-            }`}
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif", minHeight: "48px" }}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+      {children}
     </div>
   );
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div className="px-4 pt-6 pb-4">
-        <button
-          onClick={() => navigate(-1)}
+        <button onClick={() => navigate(-1)}
           className="text-sm text-[#004c22] font-medium mb-3 flex items-center gap-1"
-          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-        >
+          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
           {t.back}
         </button>
-        <h1
-          className="text-2xl font-extrabold text-[#004c22] mb-1"
-          style={{ fontFamily: "Manrope, sans-serif" }}
-        >
+        <h1 className="text-2xl font-extrabold text-[#004c22] mb-0.5"
+          style={{ fontFamily: "Manrope, sans-serif" }}>
           {t.farmerInput}
         </h1>
-        <p
-          className="text-sm text-gray-400"
-          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-        >
-          {cropInfo.name.split(" / ")[0]} — {mandi}
+        <p className="text-sm text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          {cropInfo.name.split(" / ")[0]} — {mandi} · {stateVal}
         </p>
       </div>
 
       <div className="px-4">
         {varieties.length > 0 && (
-          <div className="mb-5">
-            <label
-              className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-2"
-              style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-            >
-              {t.variety || "Variety / जात / वाण"}
-            </label>
+          <Section label={t.variety || "Variety / जात / वाण"}>
             <div className="flex gap-2 flex-wrap">
               {varieties.map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setVariety(v)}
+                <button key={v} onClick={() => setVariety(v)}
                   className={`py-2.5 px-3 rounded-xl text-sm font-medium border transition-all ${
-                    variety === v
-                      ? "bg-[#004c22] text-white border-[#004c22]"
-                      : "bg-white text-[#1e1c10] border-gray-300"
+                    variety === v ? "bg-[#004c22] text-white border-[#004c22]" : "bg-white text-[#1e1c10] border-gray-300"
                   }`}
-                  style={{ fontFamily: "Be Vietnam Pro, sans-serif", minHeight: "44px" }}
-                >
+                  style={{ fontFamily: "Be Vietnam Pro, sans-serif", minHeight: "44px" }}>
                   {v}
                 </button>
               ))}
             </div>
             {variety && (
-              <p className="text-xs text-gray-400 mt-1.5 pl-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              <p className="text-xs text-gray-400 mt-1.5 pl-1">
                 Selected: <span className="font-semibold text-[#004c22]">{variety}</span>
               </p>
             )}
-          </div>
+          </Section>
         )}
 
-        <RadioGroup
-          label={t.cropQuality}
-          value={quality}
-          onChange={setQuality}
-          options={[
-            { value: "HIGH",   label: t.high },
-            { value: "MEDIUM", label: t.medium },
-            { value: "LOW",    label: t.low },
-          ]}
-        />
+        <Section label={t.cropQuality}>
+          <RadioGroup value={quality} onChange={setQuality} options={[
+            { value: "high",   icon: "⭐", label: t.high },
+            { value: "medium", icon: "✅", label: t.medium },
+            { value: "low",    icon: "⚠️", label: t.low },
+          ]} />
+        </Section>
 
-        <RadioGroup
-          label={t.harvestStatus}
-          value={harvest}
-          onChange={setHarvest}
-          options={[
-            { value: "READY",     label: t.ready },
-            { value: "5-7 DAYS",  label: t.fiveToSevenDays },
-            { value: "NOT READY", label: t.notReady },
-          ]}
-        />
+        <Section label={t.harvestStatus}>
+          <RadioGroup value={harvest} onChange={setHarvest} options={[
+            { value: "ready",     icon: "🌾", label: t.ready },
+            { value: "soon",      icon: "🌿", label: t.soon || "5–7 Days" },
+            { value: "not_ready", icon: "🌱", label: t.notReady },
+          ]} />
+        </Section>
 
-        <RadioGroup
-          label={t.storageAvailable}
-          value={storage}
-          onChange={setStorage}
-          options={[
-            { value: "YES", label: t.yes },
-            { value: "NO",  label: t.no },
-          ]}
-        />
+        <Section label={t.storageAvailable}>
+          <RadioGroup value={storage} onChange={setStorage} options={[
+            { value: "yes", icon: "🏚️", label: t.yes },
+            { value: "no",  icon: "❌", label: t.no },
+          ]} />
+        </Section>
 
-        <RadioGroup
-          label={t.urgency}
-          value={urgency}
-          onChange={setUrgency}
-          options={[
-            { value: "NEED MONEY", label: t.needMoney },
-            { value: "FLEXIBLE",   label: t.flexible },
-            { value: "CAN WAIT",   label: t.canWait },
-          ]}
-        />
+        <Section label={t.urgency}>
+          <RadioGroup value={urgency} onChange={setUrgency} options={[
+            { value: "need_money", icon: "💰", label: t.needNow || t.needMoney },
+            { value: "flexible",   icon: "🕐", label: t.flexible },
+            { value: "can_wait",   icon: "🧘", label: t.canWait },
+          ]} />
+        </Section>
 
         <div className="mb-6">
-          <label
-            className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-2"
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
+          <label className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-2"
+            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
             {t.quantityLabel}
           </label>
           <input

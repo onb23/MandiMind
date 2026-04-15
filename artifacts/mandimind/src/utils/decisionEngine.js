@@ -6,6 +6,10 @@ export function calculateMovingAverage(prices, days) {
   return recent.reduce((sum, p) => sum + p.price, 0) / days;
 }
 
+function norm(val) {
+  return (val || "").toUpperCase().trim();
+}
+
 export function getDecision(prices, inputs) {
   const { quality, harvest, storage, urgency, variety, cropId } = inputs;
 
@@ -23,16 +27,20 @@ export function getDecision(prices, inputs) {
   if (trend === "RISING")  score += 30;
   else if (trend === "STABLE") score += 15;
 
-  if (quality === "HIGH")   score += 20;
-  else if (quality === "MEDIUM") score += 10;
+  const q = norm(quality);
+  if (q === "HIGH")   score += 20;
+  else if (q === "MEDIUM") score += 10;
 
-  if (harvest === "READY")     score += 20;
-  else if (harvest === "5-7 DAYS") score += 10;
+  const h = norm(harvest);
+  if (h === "READY")     score += 20;
+  else if (h === "SOON" || h === "5-7 DAYS") score += 10;
 
-  if (storage === "YES") score += 15;
+  const s = norm(storage);
+  if (s === "YES") score += 15;
 
-  if (urgency === "NEED MONEY") score -= 20;
-  else if (urgency === "CAN WAIT") score += 15;
+  const u = norm(urgency);
+  if (u === "NEED_MONEY" || u === "NEED MONEY") score -= 20;
+  else if (u === "CAN_WAIT" || u === "CAN WAIT") score += 15;
 
   let decision;
   if (score >= 60) decision = "SELL";
@@ -49,35 +57,34 @@ export function getDecision(prices, inputs) {
     max: Math.max(...priceValues) + variantOffset,
   };
 
+  const qualityStr = q === "HIGH" ? "High quality commands a premium — buyers willing to pay more"
+    : q === "MEDIUM" ? "Medium quality — average market rate expected"
+    : "Low quality may fetch below-market prices";
+
+  const urgencyStr = (u === "NEED_MONEY" || u === "NEED MONEY")
+    ? "Immediate cash need reduces bargaining power"
+    : (u === "CAN_WAIT" || u === "CAN WAIT")
+    ? "Flexibility to wait lets you capture better prices"
+    : "Moderate flexibility — watch prices for 2-3 days";
+
+  const storageStr = (s === "YES")
+    ? "Storage available — can hold crop to wait for better rate"
+    : "No storage — selling soon reduces spoilage risk";
+
   const explanation = {
     trend:
-      trend === "RISING"
-        ? "Prices trending upward — 5-day avg above 10-day avg"
-        : trend === "FALLING"
-          ? "Prices trending downward — 5-day avg below 10-day avg"
-          : "Prices are holding steady",
-    quality:
-      quality === "HIGH"
-        ? "High quality commands a premium — buyers willing to pay more"
-        : quality === "MEDIUM"
-          ? "Medium quality — average market rate expected"
-          : "Low quality may fetch below-market prices",
-    urgency:
-      urgency === "NEED MONEY"
-        ? "Immediate cash need reduces bargaining power"
-        : urgency === "CAN WAIT"
-          ? "Flexibility to wait lets you capture better prices"
-          : "Moderate flexibility — watch prices for 2-3 days",
-    storage:
-      storage === "YES"
-        ? "Storage available — can hold crop to wait for better rate"
-        : "No storage — selling soon reduces spoilage risk",
+      trend === "RISING" ? "Prices trending upward — 5-day avg above 10-day avg"
+      : trend === "FALLING" ? "Prices trending downward — 5-day avg below 10-day avg"
+      : "Prices are holding steady",
+    quality: qualityStr,
+    urgency: urgencyStr,
+    storage: storageStr,
     variety: variety
       ? variantOffset > 0
         ? `${variety} variety fetches ₹${variantOffset} premium over base price`
         : variantOffset < 0
-          ? `${variety} variety is ₹${Math.abs(variantOffset)} below base price`
-          : `${variety} variety is priced at market average`
+        ? `${variety} variety is ₹${Math.abs(variantOffset)} below base price`
+        : `${variety} variety is priced at market average`
       : null,
   };
 

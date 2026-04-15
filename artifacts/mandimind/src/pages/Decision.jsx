@@ -6,20 +6,7 @@ import { getDecision } from "../utils/decisionEngine";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
 
-const API_BASE = "https://mandimind.omkarborade-11.workers.dev";
-
-function mapQuality(q)  { return q.toLowerCase(); }
-function mapStorage(s)  { return s.toLowerCase(); }
-function mapUrgency(u) {
-  if (u === "NEED MONEY") return "need cash";
-  if (u === "CAN WAIT")   return "can wait";
-  return "flexible";
-}
-function mapHarvest(h) {
-  if (h === "READY")     return "ready";
-  if (h === "5-7 DAYS")  return "5-7 days";
-  return "not ready";
-}
+const WORKER_URL = "https://mandimind.omkarborade-11.workers.dev";
 
 export default function Decision() {
   const { t } = useLanguage();
@@ -28,11 +15,12 @@ export default function Decision() {
 
   const cropId   = searchParams.get("crop")     || "onion";
   const mandi    = searchParams.get("mandi")    || "";
+  const stateVal = searchParams.get("state")    || "Maharashtra";
   const variety  = searchParams.get("variety")  || "";
-  const quality  = searchParams.get("quality")  || "MEDIUM";
-  const harvest  = searchParams.get("harvest")  || "READY";
-  const storage  = searchParams.get("storage")  || "YES";
-  const urgency  = searchParams.get("urgency")  || "FLEXIBLE";
+  const quality  = searchParams.get("quality")  || "medium";
+  const harvest  = searchParams.get("harvest")  || "ready";
+  const storage  = searchParams.get("storage")  || "yes";
+  const urgency  = searchParams.get("urgency")  || "flexible";
   const quantity = searchParams.get("quantity") || "0";
 
   const cropInfo = getCropById(cropId);
@@ -43,37 +31,44 @@ export default function Decision() {
     [cropId, mandi, variety, quality, harvest, storage, urgency]
   );
 
-  const [apiDecision, setApiDecision] = useState(null);
-  const [apiLoading,  setApiLoading]  = useState(true);
-  const [apiError,    setApiError]    = useState(false);
+  const [apiDecision,  setApiDecision]  = useState(null);
+  const [apiScore,     setApiScore]     = useState(null);
+  const [apiPriceRange,setApiPriceRange]= useState(null);
+  const [apiCurrentPx, setApiCurrentPx] = useState(null);
+  const [forecastData, setForecastData] = useState(null);
+  const [mandiCompare, setMandiCompare] = useState([]);
+  const [apiLoading,   setApiLoading]   = useState(true);
+  const [apiError,     setApiError]     = useState(false);
 
   useEffect(() => {
     setApiLoading(true);
     setApiError(false);
-    setApiDecision(null);
 
     const params = new URLSearchParams({
-      crop:    cropId,
-      state:   "Maharashtra",
-      quality: mapQuality(quality),
-      harvest: mapHarvest(harvest),
-      storage: mapStorage(storage),
-      urgency: mapUrgency(urgency),
+      crop: cropId, state: stateVal,
+      quality, harvest, storage, urgency,
     });
 
-    fetch(`${API_BASE}/api/decision?${params.toString()}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        if (data?.decision) setApiDecision(data.decision.toUpperCase());
+    Promise.all([
+      fetch(`${WORKER_URL}/api/decision?${params}`),
+      fetch(`${WORKER_URL}/api/forecast?crop=${cropId}&state=${encodeURIComponent(stateVal)}`),
+      fetch(`${WORKER_URL}/api/mandi-compare?crop=${cropId}&state=${encodeURIComponent(stateVal)}`),
+    ])
+      .then(async ([dRes, fRes, cRes]) => {
+        const [dec, fore, comp] = await Promise.all([dRes.json(), fRes.json(), cRes.json()]);
+        if (dec?.decision)     setApiDecision(dec.decision.toUpperCase());
+        if (dec?.score)        setApiScore(dec.score);
+        if (dec?.priceRange)   setApiPriceRange(dec.priceRange);
+        if (dec?.currentPrice) setApiCurrentPx(dec.currentPrice);
+        if (fore?.forecast)    setForecastData(fore.forecast);
+        if (comp?.mandis)      setMandiCompare(comp.mandis);
       })
       .catch(() => setApiError(true))
       .finally(() => setApiLoading(false));
-  }, [cropId, quality, harvest, storage, urgency]);
+  }, [cropId, stateVal, quality, harvest, storage, urgency]);
 
-  const decision = apiDecision || localResult.decision;
+  const decision     = apiDecision  || localResult.decision;
+  const currentPrice = apiCurrentPx || localResult.currentPrice;
 
   const trendText  =
     localResult.trend === "RISING"  ? t.rising  :
@@ -85,28 +80,26 @@ export default function Decision() {
     "bg-gray-100 text-gray-700";
 
   const totalValue = Number(quantity) > 0
-    ? `₹${(localResult.currentPrice * Number(quantity)).toLocaleString("en-IN")}`
+    ? `₹${(currentPrice * Number(quantity)).toLocaleString("en-IN")}`
     : null;
+
+  const priceRangeLow  = apiPriceRange?.low  ?? localResult.priceRange.min;
+  const priceRangeHigh = apiPriceRange?.high ?? localResult.priceRange.max;
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div className="px-4 pt-6 pb-4">
-        <button
-          onClick={() => navigate(-1)}
+        <button onClick={() => navigate(-1)}
           className="text-sm text-[#004c22] font-medium mb-3"
-          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-        >
+          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
           {t.back}
         </button>
-        <h1
-          className="text-2xl font-extrabold text-[#004c22] mb-0.5"
-          style={{ fontFamily: "Manrope, sans-serif" }}
-        >
+        <h1 className="text-2xl font-extrabold text-[#004c22] mb-0.5"
+          style={{ fontFamily: "Manrope, sans-serif" }}>
           {t.decision}
         </h1>
         <p className="text-sm text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-          {cropInfo.name.split(" / ")[0]}
-          {variety ? ` · ${variety}` : ""} — {mandi}
+          {cropInfo.name.split(" / ")[0]}{variety ? ` · ${variety}` : ""} — {mandi} · {stateVal}
         </p>
       </div>
 
@@ -115,23 +108,22 @@ export default function Decision() {
           <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-200 flex flex-col items-center justify-center gap-3">
             <div className="w-12 h-12 rounded-full border-4 border-[#004c22]/20 border-t-[#004c22] animate-spin" />
             <p className="text-sm text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Consulting market engine…
+              {t.loading || "Consulting market engine…"}
             </p>
           </div>
         ) : (
           <>
             <DecisionCard decision={decision} score={localResult.score} />
-            {apiError && (
+            {apiError ? (
               <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
-                <span className="text-amber-500 text-lg">⚠</span>
+                <span className="text-amber-500">⚠</span>
                 <p className="text-xs text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                   Live API unavailable — showing local estimate
                 </p>
               </div>
-            )}
-            {!apiError && apiDecision && (
+            ) : (
               <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
-                <span className="text-green-500 text-base">✓</span>
+                <span className="text-green-500">✓</span>
                 <p className="text-xs text-green-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                   Decision powered by MandiMind live market engine
                 </p>
@@ -142,43 +134,69 @@ export default function Decision() {
 
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-3">
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{t.trendLabel}</span>
+            <span className="text-sm text-gray-500">{t.trendLabel}</span>
             <span className={`text-sm font-bold px-3 py-1 rounded-full ${trendClass}`}>{trendText}</span>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{t.todayPrice}</span>
-            <div className="text-right">
-              <span className="text-xl font-bold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
-                ₹{localResult.currentPrice.toLocaleString("en-IN")}
-              </span>
-              <span className="text-xs text-gray-400 ml-1">{t.per}</span>
-            </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: t.currentPriceLabel, value: `₹${currentPrice.toLocaleString("en-IN")}`, accent: false },
+              { label: t.sevenDayLow,       value: `₹${priceRangeLow.toLocaleString("en-IN")}`,  accent: "green" },
+              { label: t.fifteenDayHigh,    value: `₹${priceRangeHigh.toLocaleString("en-IN")}`, accent: "yellow" },
+            ].map((item) => (
+              <div key={item.label}
+                className={`rounded-xl p-3 text-center ${
+                  item.accent === "green"  ? "bg-green-50"  :
+                  item.accent === "yellow" ? "bg-yellow-50" : "bg-gray-50"
+                }`}>
+                <p className="text-[10px] text-gray-400 mb-0.5">{item.label}</p>
+                <p className={`text-base font-extrabold ${
+                  item.accent === "green"  ? "text-green-700"  :
+                  item.accent === "yellow" ? "text-yellow-700" : "text-[#004c22]"
+                }`} style={{ fontFamily: "Manrope, sans-serif" }}>
+                  {item.value}
+                </p>
+                <p className="text-[10px] text-gray-400">{t.per}</p>
+              </div>
+            ))}
           </div>
+
           {localResult.variantOffset !== 0 && variety && (
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{variety} premium</span>
+            <div className="flex justify-between items-center pt-1 border-t border-gray-100">
+              <span className="text-sm text-gray-500">{variety} premium</span>
               <span className={`text-sm font-semibold ${localResult.variantOffset > 0 ? "text-green-600" : "text-red-600"}`}>
                 {localResult.variantOffset > 0 ? "+" : ""}₹{localResult.variantOffset.toLocaleString("en-IN")}
               </span>
             </div>
           )}
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{t.priceRange}</span>
-            <span className="text-sm font-semibold text-gray-700" style={{ fontFamily: "Manrope, sans-serif" }}>
-              ₹{localResult.priceRange.min.toLocaleString("en-IN")} – ₹{localResult.priceRange.max.toLocaleString("en-IN")}
-            </span>
-          </div>
+
           {totalValue && (
             <div className="flex justify-between items-center border-t border-gray-100 pt-3">
-              <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {quantity} quintal total
-              </span>
+              <span className="text-sm text-gray-500">{quantity} quintal total</span>
               <span className="text-base font-bold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
                 {totalValue}
               </span>
             </div>
           )}
         </div>
+
+        {forecastData && forecastData.length > 0 && (
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+            <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
+              {t.priceForecast}
+            </h3>
+            <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${forecastData.length}, 1fr)` }}>
+              {forecastData.map((f) => (
+                <div key={f.day} className="bg-[#f8fafc] rounded-xl p-2.5 text-center">
+                  <p className="text-xs text-gray-400 mb-1">{f.day}</p>
+                  <p className="text-sm font-bold text-[#1e293b]" style={{ fontFamily: "Manrope, sans-serif" }}>
+                    ₹{f.price?.toLocaleString("en-IN")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
           <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
@@ -205,6 +223,34 @@ export default function Decision() {
             ))}
           </div>
         </div>
+
+        {mandiCompare.length > 0 && (
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+            <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
+              {t.topMandis}
+            </h3>
+            <div className="space-y-2">
+              {mandiCompare.map((m, idx) => (
+                <div key={m.mandi || m.name || idx}
+                  className={`flex items-center justify-between rounded-xl px-3 py-2.5 ${
+                    idx === 0 ? "bg-[#004c22] text-white" : "bg-gray-50"
+                  }`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center ${
+                      idx === 0 ? "bg-[#feb234] text-[#004c22]" : "bg-gray-200 text-gray-600"
+                    }`}>{idx + 1}</span>
+                    <span className={`text-sm font-medium ${idx === 0 ? "text-white" : "text-gray-700"}`}>
+                      {m.mandi || m.name}
+                    </span>
+                  </div>
+                  <span className={`text-sm font-bold ${idx === 0 ? "text-[#feb234]" : "text-[#004c22]"}`}>
+                    ₹{(m.price || m.modal_price)?.toLocaleString("en-IN")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
           <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
