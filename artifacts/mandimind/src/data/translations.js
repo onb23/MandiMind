@@ -73,6 +73,7 @@ const translations = {
     worstMandi: "Worst Mandi",
     recommendedAction: "Recommended Action",
     explanation: "Explanation",
+    variety: "Variety",
   },
   hi: {
     title: "मंडीमाइंड",
@@ -148,6 +149,7 @@ const translations = {
     worstMandi: "सबसे खराब मंडी",
     recommendedAction: "सुझावित कार्य",
     explanation: "विवरण",
+    variety: "किस्म / वाण",
   },
   mr: {
     title: "मंडीमाइंड",
@@ -223,6 +225,7 @@ const translations = {
     worstMandi: "सर्वात वाईट मंडी",
     recommendedAction: "शिफारस केलेली कृती",
     explanation: "स्पष्टीकरण",
+    variety: "जात / वाण",
   },
 };
 

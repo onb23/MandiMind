@@ -1,31 +1,29 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { getCropById } from "../data/mockPrices";
+import { getCropById, getVarietiesByCrop } from "../data/mockPrices";
 
 export default function FarmerInput() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const cropId = searchParams.get("crop") || "";
-  const mandi = searchParams.get("mandi") || "";
-  const cropInfo = getCropById(cropId);
 
-  const [quality, setQuality] = useState("");
-  const [harvest, setHarvest] = useState("");
-  const [storage, setStorage] = useState("");
-  const [urgency, setUrgency] = useState("");
+  const cropId  = searchParams.get("crop")  || "";
+  const mandi   = searchParams.get("mandi") || "";
+  const cropInfo  = getCropById(cropId);
+  const varieties = getVarietiesByCrop(cropId);
+
+  const [variety,  setVariety]  = useState(varieties[0] || "");
+  const [quality,  setQuality]  = useState("");
+  const [harvest,  setHarvest]  = useState("");
+  const [storage,  setStorage]  = useState("");
+  const [urgency,  setUrgency]  = useState("");
   const [quantity, setQuantity] = useState("");
 
   const handleSubmit = () => {
     if (quality && harvest && storage && urgency) {
       const params = new URLSearchParams({
-        crop: cropId,
-        mandi,
-        quality,
-        harvest,
-        storage,
-        urgency,
+        crop: cropId, mandi, variety, quality, harvest, storage, urgency,
         quantity: quantity || "0",
       });
       navigate(`/decision?${params.toString()}`);
@@ -37,7 +35,7 @@ export default function FarmerInput() {
   const RadioGroup = ({ label, options, value, onChange }) => (
     <div className="mb-5">
       <label
-        className="block text-sm font-semibold text-[#1e1c10] mb-2"
+        className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-2"
         style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
       >
         {label}
@@ -78,7 +76,7 @@ export default function FarmerInput() {
           {t.farmerInput}
         </h1>
         <p
-          className="text-sm text-gray-500"
+          className="text-sm text-gray-400"
           style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
         >
           {cropInfo.name.split(" / ")[0]} — {mandi}
@@ -86,6 +84,38 @@ export default function FarmerInput() {
       </div>
 
       <div className="px-4">
+        {varieties.length > 0 && (
+          <div className="mb-5">
+            <label
+              className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-2"
+              style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+            >
+              {t.variety || "Variety / जात / वाण"}
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              {varieties.map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setVariety(v)}
+                  className={`py-2.5 px-3 rounded-xl text-sm font-medium border transition-all ${
+                    variety === v
+                      ? "bg-[#004c22] text-white border-[#004c22]"
+                      : "bg-white text-[#1e1c10] border-gray-300"
+                  }`}
+                  style={{ fontFamily: "Be Vietnam Pro, sans-serif", minHeight: "44px" }}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            {variety && (
+              <p className="text-xs text-gray-400 mt-1.5 pl-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                Selected: <span className="font-semibold text-[#004c22]">{variety}</span>
+              </p>
+            )}
+          </div>
+        )}
+
         <RadioGroup
           label={t.cropQuality}
           value={quality}
@@ -131,7 +161,7 @@ export default function FarmerInput() {
 
         <div className="mb-6">
           <label
-            className="block text-sm font-semibold text-[#1e1c10] mb-2"
+            className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-2"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
             {t.quantityLabel}
@@ -140,7 +170,7 @@ export default function FarmerInput() {
             type="number"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
-            placeholder="10"
+            placeholder="e.g. 10"
             className="w-full bg-white border border-gray-300 rounded-xl px-4 py-4 text-base text-[#1e1c10] outline-none focus:border-[#004c22] focus:ring-2 focus:ring-[#004c22]/20"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           />

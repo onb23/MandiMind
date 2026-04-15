@@ -1,29 +1,31 @@
 import { useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
-import { priceData, CROPS, mandis, getCropById } from "../data/mockPrices";
+import { priceData, CROPS, getCropById, getMandisByCrop } from "../data/mockPrices";
 import TrendChart from "../components/TrendChart";
 
 export default function Forecast() {
   const { t } = useLanguage();
   const [selectedCrop, setSelectedCrop] = useState(CROPS[0].id);
-  const [selectedMandi, setSelectedMandi] = useState(mandis[0]);
 
-  const prices = priceData[selectedCrop]?.[selectedMandi] || [];
-  const cropInfo = getCropById(selectedCrop);
+  const mandiList = getMandisByCrop(selectedCrop);
+  const [selectedMandi, setSelectedMandi] = useState(mandiList[0] || "");
 
+  const handleCropChange = (cropId) => {
+    setSelectedCrop(cropId);
+    const newMandis = getMandisByCrop(cropId);
+    setSelectedMandi(newMandis[0] || "");
+  };
+
+  const prices      = priceData[selectedCrop]?.[selectedMandi] || [];
+  const cropInfo    = getCropById(selectedCrop);
   const currentPrice = prices.length > 0 ? prices[prices.length - 1].price : 0;
   const prevPrice    = prices.length > 1 ? prices[prices.length - 2].price : currentPrice;
   const change       = currentPrice - prevPrice;
-  const changePct    = prevPrice > 0 ? ((change / prevPrice) * 100).toFixed(1) : 0;
-
-  const trendIcon =
-    cropInfo.trend === "rising"  ? "↑ " + t.rising :
-    cropInfo.trend === "falling" ? "↓ " + t.falling :
-    "→ " + t.stable;
+  const changePct    = prevPrice > 0 ? ((change / prevPrice) * 100).toFixed(1) : "0.0";
 
   const trendBg =
     cropInfo.trend === "rising"  ? "bg-green-100 text-green-700" :
-    cropInfo.trend === "falling" ? "bg-red-100 text-red-700" :
+    cropInfo.trend === "falling" ? "bg-red-100 text-red-700"     :
     "bg-gray-100 text-gray-600";
 
   return (
@@ -35,7 +37,7 @@ export default function Forecast() {
         >
           {t.forecast}
         </h1>
-        <p className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+        <p className="text-sm text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
           {t.priceTrend}
         </p>
       </div>
@@ -44,7 +46,7 @@ export default function Forecast() {
         <div className="flex gap-2">
           <select
             value={selectedCrop}
-            onChange={(e) => setSelectedCrop(e.target.value)}
+            onChange={(e) => handleCropChange(e.target.value)}
             className="flex-1 bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
@@ -58,7 +60,7 @@ export default function Forecast() {
             className="flex-1 bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
-            {mandis.map((m) => (
+            {mandiList.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
@@ -69,7 +71,7 @@ export default function Forecast() {
             <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{t.todayPrice}</span>
             <div className="flex items-center gap-2">
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${trendBg}`}>
-                {trendIcon}
+                {cropInfo.trend === "rising" ? "↑" : cropInfo.trend === "falling" ? "↓" : "→"} {t[cropInfo.trend] || cropInfo.trend}
               </span>
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${change >= 0 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
                 {change >= 0 ? "+" : ""}{changePct}%
@@ -79,9 +81,7 @@ export default function Forecast() {
           <p className="text-3xl font-extrabold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
             ₹{currentPrice.toLocaleString("en-IN")}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {t.perQuintal}
-          </p>
+          <p className="text-xs text-gray-400 mt-0.5">{t.perQuintal}</p>
         </div>
 
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
@@ -92,18 +92,19 @@ export default function Forecast() {
         </div>
 
         <div className="bg-[#166534] rounded-2xl p-4 text-white">
-          <h3 className="text-sm font-bold mb-3 opacity-90" style={{ fontFamily: "Manrope, sans-serif" }}>
+          <h3 className="text-sm font-bold mb-3 opacity-80 uppercase tracking-wide" style={{ fontFamily: "Manrope, sans-serif" }}>
             {t.comparison} — {cropInfo.name.split(" / ")[0]}
           </h3>
           <div className="space-y-2">
-            {mandis.map((mandi) => {
+            {mandiList.map((mandi) => {
               const mp    = priceData[selectedCrop]?.[mandi] || [];
               const price = mp.length > 0 ? mp[mp.length - 1].price : 0;
-              const isTop = price === Math.max(...mandis.map((m) => priceData[selectedCrop]?.[m]?.slice(-1)[0]?.price || 0));
+              const maxPrice = Math.max(...mandiList.map((m) => priceData[selectedCrop]?.[m]?.slice(-1)[0]?.price || 0));
+              const isTop = price === maxPrice;
               return (
                 <div
                   key={mandi}
-                  className={`flex justify-between items-center rounded-lg px-3 py-2 ${isTop ? "bg-[#feb234]/20 border border-[#feb234]/40" : "bg-white/10"}`}
+                  className={`flex justify-between items-center rounded-lg px-3 py-2.5 ${isTop ? "bg-[#feb234]/20 border border-[#feb234]/40" : "bg-white/10"}`}
                 >
                   <span className="text-sm">{mandi}</span>
                   <span className={`text-sm font-bold ${isTop ? "text-[#feb234]" : ""}`}>

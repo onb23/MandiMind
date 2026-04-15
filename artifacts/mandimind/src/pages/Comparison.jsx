@@ -1,21 +1,21 @@
 import { useMemo, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { priceData, mandis, getCropById, getCropNames } from "../data/mockPrices";
+import { priceData, getCropById, getCropNames, getMandisByCrop } from "../data/mockPrices";
 import MandiCard from "../components/MandiCard";
 
 export default function Comparison() {
   const { t } = useLanguage();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initCrop = searchParams.get("crop") || "onion";
   const [selectedCrop, setSelectedCrop] = useState(initCrop);
 
   const cropInfo = getCropById(selectedCrop);
   const cropList = getCropNames();
+  const mandiList = getMandisByCrop(selectedCrop);
 
   const mandiComparison = useMemo(() => {
-    return mandis.map((mandi) => {
+    return mandiList.map((mandi) => {
       const prices = priceData[selectedCrop]?.[mandi] || [];
       const todayPrice = prices.length > 0 ? prices[prices.length - 1].price : 0;
       const avgPrice = prices.length > 0
@@ -25,10 +25,8 @@ export default function Comparison() {
     });
   }, [selectedCrop]);
 
-  const bestMandi = mandiComparison.reduce(
-    (best, curr) => (curr.todayPrice > best.todayPrice ? curr : best),
-    mandiComparison[0]
-  );
+  const sorted = [...mandiComparison].sort((a, b) => b.todayPrice - a.todayPrice);
+  const bestMandi = sorted[0];
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -52,29 +50,28 @@ export default function Comparison() {
       </div>
 
       <div className="px-4">
-        <div className="bg-[#004c22] rounded-xl p-3 mb-4 flex items-center justify-between">
-          <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {t.bestMandi}:
-          </span>
-          <span className="text-[#feb234] font-bold text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
-            {bestMandi.mandi} — ₹{bestMandi.todayPrice.toLocaleString("en-IN")}
-          </span>
-        </div>
+        {bestMandi && (
+          <div className="bg-[#004c22] rounded-xl p-3 mb-4 flex items-center justify-between">
+            <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              {t.bestMandi}:
+            </span>
+            <span className="text-[#feb234] font-bold text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
+              {bestMandi.mandi} — ₹{bestMandi.todayPrice.toLocaleString("en-IN")}
+            </span>
+          </div>
+        )}
 
         <div className="space-y-3">
-          {mandiComparison
-            .slice()
-            .sort((a, b) => b.todayPrice - a.todayPrice)
-            .map((item, idx) => (
-              <MandiCard
-                key={item.mandi}
-                mandi={item.mandi}
-                todayPrice={item.todayPrice}
-                avgPrice={item.avgPrice}
-                isBest={item.mandi === bestMandi.mandi}
-                rank={idx + 1}
-              />
-            ))}
+          {sorted.map((item, idx) => (
+            <MandiCard
+              key={item.mandi}
+              mandi={item.mandi}
+              todayPrice={item.todayPrice}
+              avgPrice={item.avgPrice}
+              isBest={item.mandi === bestMandi?.mandi}
+              rank={idx + 1}
+            />
+          ))}
         </div>
       </div>
     </div>

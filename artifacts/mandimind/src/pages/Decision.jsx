@@ -11,33 +11,34 @@ export default function Decision() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const cropId   = searchParams.get("crop")    || "onion";
-  const mandi    = searchParams.get("mandi")   || "Pune";
-  const quality  = searchParams.get("quality") || "MEDIUM";
-  const harvest  = searchParams.get("harvest") || "READY";
-  const storage  = searchParams.get("storage") || "YES";
-  const urgency  = searchParams.get("urgency") || "FLEXIBLE";
+  const cropId   = searchParams.get("crop")     || "onion";
+  const mandi    = searchParams.get("mandi")    || "";
+  const variety  = searchParams.get("variety")  || "";
+  const quality  = searchParams.get("quality")  || "MEDIUM";
+  const harvest  = searchParams.get("harvest")  || "READY";
+  const storage  = searchParams.get("storage")  || "YES";
+  const urgency  = searchParams.get("urgency")  || "FLEXIBLE";
   const quantity = searchParams.get("quantity") || "0";
 
   const cropInfo = getCropById(cropId);
 
   const result = useMemo(() => {
     const prices = priceData[cropId]?.[mandi] || [];
-    return getDecision(prices, { quality, harvest, storage, urgency });
-  }, [cropId, mandi, quality, harvest, storage, urgency]);
+    return getDecision(prices, { quality, harvest, storage, urgency, variety, cropId });
+  }, [cropId, mandi, variety, quality, harvest, storage, urgency]);
 
   const prices = priceData[cropId]?.[mandi] || [];
 
-  const trendText =
-    result.trend === "RISING" ? t.rising :
+  const trendText  =
+    result.trend === "RISING"  ? t.rising :
     result.trend === "FALLING" ? t.falling : t.stable;
 
   const trendClass =
-    result.trend === "RISING" ? "bg-green-100 text-green-700" :
-    result.trend === "FALLING" ? "bg-red-100 text-red-700" :
+    result.trend === "RISING"  ? "bg-green-100 text-green-700" :
+    result.trend === "FALLING" ? "bg-red-100 text-red-700"     :
     "bg-gray-100 text-gray-700";
 
-  const totalValue = quantity > 0
+  const totalValue = Number(quantity) > 0
     ? `₹${(result.currentPrice * Number(quantity)).toLocaleString("en-IN")}`
     : null;
 
@@ -52,16 +53,14 @@ export default function Decision() {
           {t.back}
         </button>
         <h1
-          className="text-2xl font-extrabold text-[#004c22] mb-1"
+          className="text-2xl font-extrabold text-[#004c22] mb-0.5"
           style={{ fontFamily: "Manrope, sans-serif" }}
         >
           {t.decision}
         </h1>
-        <p
-          className="text-sm text-gray-500"
-          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-        >
-          {cropInfo.name.split(" / ")[0]} — {mandi}
+        <p className="text-sm text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          {cropInfo.name.split(" / ")[0]}
+          {variety ? ` · ${variety}` : ""} — {mandi}
         </p>
       </div>
 
@@ -75,10 +74,21 @@ export default function Decision() {
           </div>
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{t.todayPrice}</span>
-            <span className="text-lg font-bold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
-              ₹{result.currentPrice.toLocaleString("en-IN")} <span className="text-xs font-normal text-gray-400">{t.per}</span>
-            </span>
+            <div className="text-right">
+              <span className="text-xl font-bold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
+                ₹{result.currentPrice.toLocaleString("en-IN")}
+              </span>
+              <span className="text-xs text-gray-400 ml-1">{t.per}</span>
+            </div>
           </div>
+          {result.variantOffset !== 0 && variety && (
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{variety} premium</span>
+              <span className={`text-sm font-semibold ${result.variantOffset > 0 ? "text-green-600" : "text-red-600"}`}>
+                {result.variantOffset > 0 ? "+" : ""}₹{result.variantOffset.toLocaleString("en-IN")}
+              </span>
+            </div>
+          )}
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{t.priceRange}</span>
             <span className="text-sm font-semibold text-gray-700" style={{ fontFamily: "Manrope, sans-serif" }}>
@@ -88,7 +98,7 @@ export default function Decision() {
           {totalValue && (
             <div className="flex justify-between items-center border-t border-gray-100 pt-3">
               <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {quantity} quintal value
+                {quantity} quintal total
               </span>
               <span className="text-base font-bold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
                 {totalValue}
@@ -107,10 +117,17 @@ export default function Decision() {
               { label: t.qualityLabel, value: result.explanation.quality },
               { label: t.urgencyLabel, value: result.explanation.urgency },
               { label: t.storageLabel, value: result.explanation.storage },
+              ...(result.explanation.variety
+                ? [{ label: variety, value: result.explanation.variety }]
+                : []),
             ].map((item) => (
-              <div key={item.label} className="flex items-start gap-2 py-1">
-                <span className="text-sm font-semibold text-[#004c22] min-w-[90px] shrink-0">{item.label}:</span>
-                <span className="text-sm text-gray-600" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{item.value}</span>
+              <div key={item.label} className="flex items-start gap-2 py-1 border-b border-gray-50 last:border-0">
+                <span className="text-xs font-bold text-[#004c22] min-w-[80px] shrink-0 pt-0.5 uppercase">
+                  {item.label}
+                </span>
+                <span className="text-sm text-gray-600" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                  {item.value}
+                </span>
               </div>
             ))}
           </div>
