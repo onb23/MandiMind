@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { crops, mandis } from "../data/mockPrices";
+import { getCropNames, mandis, priceData, CROPS } from "../data/mockPrices";
 import logo from "../assets/logo.svg";
 
 export default function Home() {
@@ -10,24 +10,30 @@ export default function Home() {
   const [selectedCrop, setSelectedCrop] = useState("");
   const [selectedMandi, setSelectedMandi] = useState("");
 
-  const handleCheckPrice = () => {
-    if (selectedCrop && selectedMandi) {
-      navigate(`/input?crop=${selectedCrop}&mandi=${selectedMandi}`);
-    }
-  };
+  const cropList = getCropNames();
+
+  const trendIcon = (trend) =>
+    trend === "rising" ? "↑" : trend === "falling" ? "↓" : "→";
+
+  const trendColor = (trend) =>
+    trend === "rising"
+      ? "text-green-300"
+      : trend === "falling"
+        ? "text-red-300"
+        : "text-yellow-200";
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div className="px-4 pt-8 pb-6 text-center">
         <img src={logo} alt="MandiMind" className="w-20 h-20 mx-auto mb-4" />
         <h1
-          className="text-3xl font-extrabold text-[#004c22] mb-2"
+          className="text-3xl font-extrabold text-[#004c22] mb-1"
           style={{ fontFamily: "Manrope, sans-serif" }}
         >
           {t.appName}
         </h1>
         <p
-          className="text-base text-[#1e1c10] opacity-70"
+          className="text-sm text-[#1e1c10] opacity-60"
           style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
         >
           {t.tagline}
@@ -49,9 +55,9 @@ export default function Home() {
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
             <option value="">{t.selectCrop}</option>
-            {crops.map((crop) => (
-              <option key={crop} value={crop}>
-                {crop}
+            {cropList.map((crop) => (
+              <option key={crop.id} value={crop.id}>
+                {crop.name}
               </option>
             ))}
           </select>
@@ -80,36 +86,43 @@ export default function Home() {
         </div>
 
         <button
-          onClick={handleCheckPrice}
+          onClick={() => navigate(`/input?crop=${selectedCrop}&mandi=${selectedMandi}`)}
           disabled={!selectedCrop || !selectedMandi}
           className="w-full bg-[#feb234] text-[#1e1c10] font-bold text-lg py-4 rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
-          style={{
-            fontFamily: "Manrope, sans-serif",
-            minHeight: "56px",
-          }}
+          style={{ fontFamily: "Manrope, sans-serif", minHeight: "56px" }}
         >
           {t.checkPrice}
         </button>
       </div>
 
-      <div className="px-4 mt-8">
-        <div className="bg-[#166534] rounded-2xl p-5 text-white">
+      <div className="px-4 mt-6">
+        <div className="bg-[#166534] rounded-2xl p-4 text-white">
           <h3
-            className="text-lg font-bold mb-3"
+            className="text-base font-bold mb-3 opacity-90"
             style={{ fontFamily: "Manrope, sans-serif" }}
           >
             {t.priceTrend}
           </h3>
-          <div className="grid grid-cols-2 gap-3">
-            {crops.slice(0, 4).map((crop) => (
-              <div key={crop} className="bg-white/10 rounded-xl p-3">
-                <p className="text-sm opacity-80">{crop}</p>
-                <p className="text-lg font-bold">
-                  {"\u20B9"}
-                  {Math.floor(Math.random() * 1000 + 1200)}
-                </p>
-              </div>
-            ))}
+          <div className="grid grid-cols-2 gap-2">
+            {CROPS.slice(0, 6).map((crop) => {
+              const prices = priceData[crop.id]?.["Pune"] || [];
+              const today = prices.length > 0 ? prices[prices.length - 1].price : crop.base;
+              return (
+                <div key={crop.id} className="bg-white/10 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs opacity-70 truncate pr-1">
+                      {crop.name.split(" / ")[0]}
+                    </p>
+                    <span className={`text-sm font-bold ${trendColor(crop.trend)}`}>
+                      {trendIcon(crop.trend)}
+                    </span>
+                  </div>
+                  <p className="text-base font-bold">
+                    ₹{today.toLocaleString("en-IN")}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

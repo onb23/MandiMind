@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
+import { getCropById } from "../data/mockPrices";
 
 export default function FarmerInput() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const crop = searchParams.get("crop") || "";
+  const cropId = searchParams.get("crop") || "";
   const mandi = searchParams.get("mandi") || "";
+  const cropInfo = getCropById(cropId);
 
   const [quality, setQuality] = useState("");
   const [harvest, setHarvest] = useState("");
@@ -18,7 +20,7 @@ export default function FarmerInput() {
   const handleSubmit = () => {
     if (quality && harvest && storage && urgency) {
       const params = new URLSearchParams({
-        crop,
+        crop: cropId,
         mandi,
         quality,
         harvest,
@@ -35,25 +37,22 @@ export default function FarmerInput() {
   const RadioGroup = ({ label, options, value, onChange }) => (
     <div className="mb-5">
       <label
-        className="block text-sm font-semibold text-[#1e1c10] mb-3"
+        className="block text-sm font-semibold text-[#1e1c10] mb-2"
         style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
       >
         {label}
       </label>
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {options.map((opt) => (
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
-            className={`flex-1 py-3 px-3 rounded-xl text-sm font-medium border transition-all ${
+            className={`flex-1 py-3 px-2 rounded-xl text-sm font-medium border transition-all ${
               value === opt.value
                 ? "bg-[#004c22] text-white border-[#004c22]"
-                : "bg-white text-[#1e1c10] border-gray-300"
+                : "bg-white text-[#1e1c10] border-gray-300 active:bg-gray-50"
             }`}
-            style={{
-              fontFamily: "Be Vietnam Pro, sans-serif",
-              minHeight: "48px",
-            }}
+            style={{ fontFamily: "Be Vietnam Pro, sans-serif", minHeight: "48px" }}
           >
             {opt.label}
           </button>
@@ -65,6 +64,13 @@ export default function FarmerInput() {
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div className="px-4 pt-6 pb-4">
+        <button
+          onClick={() => navigate(-1)}
+          className="text-sm text-[#004c22] font-medium mb-3 flex items-center gap-1"
+          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+        >
+          {t.back}
+        </button>
         <h1
           className="text-2xl font-extrabold text-[#004c22] mb-1"
           style={{ fontFamily: "Manrope, sans-serif" }}
@@ -72,10 +78,10 @@ export default function FarmerInput() {
           {t.farmerInput}
         </h1>
         <p
-          className="text-sm text-gray-600"
+          className="text-sm text-gray-500"
           style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
         >
-          {crop} - {mandi}
+          {cropInfo.name.split(" / ")[0]} — {mandi}
         </p>
       </div>
 
@@ -85,9 +91,9 @@ export default function FarmerInput() {
           value={quality}
           onChange={setQuality}
           options={[
-            { value: "HIGH", label: t.high },
+            { value: "HIGH",   label: t.high },
             { value: "MEDIUM", label: t.medium },
-            { value: "LOW", label: t.low },
+            { value: "LOW",    label: t.low },
           ]}
         />
 
@@ -96,8 +102,8 @@ export default function FarmerInput() {
           value={harvest}
           onChange={setHarvest}
           options={[
-            { value: "READY", label: t.ready },
-            { value: "5-7 DAYS", label: t.fiveToSevenDays },
+            { value: "READY",     label: t.ready },
+            { value: "5-7 DAYS",  label: t.fiveToSevenDays },
             { value: "NOT READY", label: t.notReady },
           ]}
         />
@@ -108,7 +114,7 @@ export default function FarmerInput() {
           onChange={setStorage}
           options={[
             { value: "YES", label: t.yes },
-            { value: "NO", label: t.no },
+            { value: "NO",  label: t.no },
           ]}
         />
 
@@ -118,8 +124,8 @@ export default function FarmerInput() {
           onChange={setUrgency}
           options={[
             { value: "NEED MONEY", label: t.needMoney },
-            { value: "FLEXIBLE", label: t.flexible },
-            { value: "CAN WAIT", label: t.canWait },
+            { value: "FLEXIBLE",   label: t.flexible },
+            { value: "CAN WAIT",   label: t.canWait },
           ]}
         />
 
@@ -144,12 +150,9 @@ export default function FarmerInput() {
           onClick={handleSubmit}
           disabled={!isFormValid}
           className="w-full bg-[#feb234] text-[#1e1c10] font-bold text-lg py-4 rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
-          style={{
-            fontFamily: "Manrope, sans-serif",
-            minHeight: "56px",
-          }}
+          style={{ fontFamily: "Manrope, sans-serif", minHeight: "56px" }}
         >
-          {t.seeDecision}
+          {t.submit}
         </button>
       </div>
     </div>

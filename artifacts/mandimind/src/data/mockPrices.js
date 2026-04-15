@@ -1,70 +1,50 @@
-const crops = ["Onion", "Tomato", "Wheat", "Soybean", "Cotton"];
-const mandis = ["Pune", "Nashik", "Aurangabad", "Nagpur", "Mumbai"];
+export const CROPS = [
+  { id: "wheat",     name: "Wheat / गेहूं / गहू",               base: 2200, trend: "rising",  trendDelta: 0.04 },
+  { id: "onion",     name: "Onion / प्याज / कांदा",              base: 1800, trend: "falling", trendDelta: -0.06 },
+  { id: "tomato",    name: "Tomato / टमाटर / टोमॅटो",            base: 1400, trend: "rising",  trendDelta: 0.08 },
+  { id: "cotton",    name: "Cotton / कपास / कापूस",              base: 6200, trend: "stable",  trendDelta: 0.01 },
+  { id: "soybean",   name: "Soybean / सोयाबीन",                  base: 4500, trend: "rising",  trendDelta: 0.03 },
+  { id: "sugarcane", name: "Sugarcane / गन्ना / ऊस",             base: 3200, trend: "stable",  trendDelta: 0.0 },
+  { id: "maize",     name: "Maize / मक्का / मका",                base: 1900, trend: "falling", trendDelta: -0.02 },
+  { id: "rice",      name: "Rice / धान / भात",                   base: 2100, trend: "stable",  trendDelta: 0.01 },
+  { id: "chilli",    name: "Chilli / मिर्च / मिरची",              base: 8000, trend: "rising",  trendDelta: 0.05 },
+  { id: "garlic",    name: "Garlic / लहसुन / लसूण",              base: 3500, trend: "falling", trendDelta: -0.03 },
+];
+
+export const mandis = ["Pune", "Nashik", "Aurangabad", "Nagpur", "Mumbai"];
+
+export const crops = CROPS.map((c) => c.id);
 
 function generatePriceData() {
   const data = {};
   const today = new Date();
 
-  crops.forEach((crop) => {
-    data[crop] = {};
+  CROPS.forEach((crop) => {
+    data[crop.id] = {};
     mandis.forEach((mandi) => {
       const prices = [];
-      let basePrice;
-      switch (crop) {
-        case "Onion":
-          basePrice = 1200;
-          break;
-        case "Tomato":
-          basePrice = 1500;
-          break;
-        case "Wheat":
-          basePrice = 2100;
-          break;
-        case "Soybean":
-          basePrice = 1800;
-          break;
-        case "Cotton":
-          basePrice = 2200;
-          break;
-        default:
-          basePrice = 1500;
-      }
 
-      let mandiOffset;
-      switch (mandi) {
-        case "Mumbai":
-          mandiOffset = 200;
-          break;
-        case "Pune":
-          mandiOffset = 100;
-          break;
-        case "Nashik":
-          mandiOffset = -50;
-          break;
-        case "Aurangabad":
-          mandiOffset = -100;
-          break;
-        case "Nagpur":
-          mandiOffset = 0;
-          break;
-        default:
-          mandiOffset = 0;
-      }
+      const mandiOffset =
+        mandi === "Mumbai" ? 250 :
+        mandi === "Pune" ? 120 :
+        mandi === "Nashik" ? -60 :
+        mandi === "Aurangabad" ? -120 :
+        mandi === "Nagpur" ? 0 : 0;
 
       for (let i = 29; i >= 0; i--) {
         const date = new Date(today);
         date.setDate(date.getDate() - i);
-        const variation = Math.floor(Math.random() * 300) - 150;
-        const trendFactor = (30 - i) * 5;
-        let price = basePrice + mandiOffset + variation + trendFactor;
-        price = Math.max(800, Math.min(2500, price));
+        const trendFactor = (30 - i) * crop.base * Math.abs(crop.trendDelta) * 0.5 * (crop.trendDelta >= 0 ? 1 : -1);
+        const noise = (Math.random() - 0.5) * crop.base * 0.1;
+        let price = Math.round(crop.base + mandiOffset + trendFactor + noise);
+        price = Math.max(500, price);
         prices.push({
           date: date.toISOString().split("T")[0],
-          price: price,
+          price,
           day: date.toLocaleDateString("en-IN", { weekday: "short" }),
         });
       }
-      data[crop][mandi] = prices;
+      data[crop.id][mandi] = prices;
     });
   });
 
@@ -72,4 +52,11 @@ function generatePriceData() {
 }
 
 export const priceData = generatePriceData();
-export { crops, mandis };
+
+export function getCropById(id) {
+  return CROPS.find((c) => c.id === id) || CROPS[0];
+}
+
+export function getCropNames() {
+  return CROPS.map((c) => ({ id: c.id, name: c.name }));
+}
