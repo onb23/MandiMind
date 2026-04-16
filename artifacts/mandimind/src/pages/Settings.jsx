@@ -66,7 +66,7 @@ export default function Settings() {
             className="text-xs text-gray-400 mt-2"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
-            Version 1.0.0 MVP
+            Version 1.0
           </p>
         </div>
       </div>

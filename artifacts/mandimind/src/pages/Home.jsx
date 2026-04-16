@@ -31,6 +31,19 @@ export default function Home() {
   const fetchLiveData = useCallback(async (cropId, state) => {
     if (!cropId) return;
     setFetching(true);
+
+    // Show cached data immediately while fetching
+    const cacheKey = `mm_trend_${cropId}_${state}`;
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const { trendJson, pricesJson } = JSON.parse(cached);
+        setTrendData(trendJson);
+        setPriceHistory(pricesJson.data || []);
+        setFetching(false);
+      }
+    } catch {}
+
     try {
       const [trendRes, pricesRes] = await Promise.all([
         fetch(`${WORKER_URL}/api/trend?crop=${cropId}&state=${encodeURIComponent(state)}`),
@@ -40,11 +53,12 @@ export default function Home() {
       const pricesJson = await pricesRes.json();
       setTrendData(trendJson);
       setPriceHistory(pricesJson.data || []);
-      setDataSource(pricesJson.source === "live" ? "live" : "mock");
+      try { localStorage.setItem(cacheKey, JSON.stringify({ trendJson, pricesJson })); } catch {}
     } catch {
-      const fallback = priceData[cropId]?.[mandiList[0]] || [];
-      setPriceHistory(fallback);
-      setDataSource("mock");
+      // fallback to local mock prices
+      const mandis  = getMandisByCrop(cropId);
+      const fallback = priceData[cropId]?.[mandis[0]] || [];
+      if (!trendData) setPriceHistory(fallback);
     } finally {
       setFetching(false);
     }
@@ -70,20 +84,12 @@ export default function Home() {
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div className="px-4 pt-8 pb-5 text-center">
         <img src={logo} alt="MandiMind" className="w-20 h-20 mx-auto mb-3" />
-        <div className="flex items-center justify-center gap-2 mb-1">
-          <h1
-            className="text-3xl font-extrabold text-[#004c22]"
-            style={{ fontFamily: "Manrope, sans-serif" }}
-          >
-            {t.appName}
-          </h1>
-          <span
-            className="text-xs font-bold px-2 py-0.5 rounded-full text-white"
-            style={{ background: dataSource === "live" ? "#22c55e" : "#f59e0b", fontSize: 10 }}
-          >
-            {dataSource === "live" ? t.liveBadge : t.mockBadge}
-          </span>
-        </div>
+        <h1
+          className="text-3xl font-extrabold text-[#004c22] mb-1"
+          style={{ fontFamily: "Manrope, sans-serif" }}
+        >
+          {t.appName}
+        </h1>
         <p className="text-sm text-[#1e1c10] opacity-55" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
           {t.tagline}
         </p>

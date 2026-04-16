@@ -44,6 +44,27 @@ export default function Decision() {
     setApiLoading(true);
     setApiError(false);
 
+    const cacheKey = `mm_decision_${cropId}_${stateVal}_${quality}_${harvest}_${storage}_${urgency}`;
+
+    function applyData(dec, fore, comp) {
+      if (dec?.decision)     setApiDecision(dec.decision.toUpperCase());
+      if (dec?.score != null) setApiScore(dec.score);
+      if (dec?.priceRange)   setApiPriceRange(dec.priceRange);
+      if (dec?.currentPrice) setApiCurrentPx(dec.currentPrice);
+      if (fore?.forecast)    setForecastData(fore.forecast);
+      if (comp?.mandis)      setMandiCompare(comp.mandis);
+    }
+
+    // Show cached data immediately if available — no spinner needed
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const { dec, fore, comp } = JSON.parse(cached);
+        applyData(dec, fore, comp);
+        setApiLoading(false);
+      }
+    } catch {}
+
     const params = new URLSearchParams({
       crop: cropId, state: stateVal,
       quality, harvest, storage, urgency,
@@ -56,12 +77,10 @@ export default function Decision() {
     ])
       .then(async ([dRes, fRes, cRes]) => {
         const [dec, fore, comp] = await Promise.all([dRes.json(), fRes.json(), cRes.json()]);
-        if (dec?.decision)     setApiDecision(dec.decision.toUpperCase());
-        if (dec?.score)        setApiScore(dec.score);
-        if (dec?.priceRange)   setApiPriceRange(dec.priceRange);
-        if (dec?.currentPrice) setApiCurrentPx(dec.currentPrice);
-        if (fore?.forecast)    setForecastData(fore.forecast);
-        if (comp?.mandis)      setMandiCompare(comp.mandis);
+        applyData(dec, fore, comp);
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify({ dec, fore, comp }));
+        } catch {}
       })
       .catch(() => setApiError(true))
       .finally(() => setApiLoading(false));
