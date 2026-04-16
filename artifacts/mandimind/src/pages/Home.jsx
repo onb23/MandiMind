@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { getCropNames, getMandisByCrop, CROPS, priceData } from "../data/mockPrices";
 import Sparkline from "../components/Sparkline";
 import logo from "../assets/logo.svg";
-
-const WORKER_URL = "https://mandimind.omkarborade-11.workers.dev";
+import { fetchPrices, fetchTrend } from "../utils/api";
 
 const STATES = [
   "Maharashtra", "Madhya Pradesh", "Uttar Pradesh",
@@ -22,43 +21,41 @@ export default function Home() {
 
   const [trendData,    setTrendData]    = useState(null);
   const [priceHistory, setPriceHistory] = useState([]);
-  const [dataSource,   setDataSource]   = useState("mock");
+  const [liveSource,   setLiveSource]   = useState(null); // "live" | "cache" | null
   const [fetching,     setFetching]     = useState(false);
 
   const cropList  = getCropNames();
   const mandiList = selectedCrop ? getMandisByCrop(selectedCrop) : [];
 
-  const fetchLiveData = useCallback(async (cropId, state) => {
+  const loadData = useCallback(async (cropId, mandi, state) => {
     if (!cropId) return;
-    setFetching(true);
+    // Use first mandi as fallback when none selected yet
+    const effectiveMandi = mandi || getMandisByCrop(cropId)[0] || "";
+    if (!effectiveMandi) return;
 
-    // Show cached data immediately while fetching
-    const cacheKey = `mm_trend_${cropId}_${state}`;
-    try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const { trendJson, pricesJson } = JSON.parse(cached);
-        setTrendData(trendJson);
-        setPriceHistory(pricesJson.data || []);
-        setFetching(false);
-      }
-    } catch {}
+    setFetching(true);
 
     try {
       const [trendRes, pricesRes] = await Promise.all([
-        fetch(`${WORKER_URL}/api/trend?crop=${cropId}&state=${encodeURIComponent(state)}`),
-        fetch(`${WORKER_URL}/api/prices?crop=${cropId}&state=${encodeURIComponent(state)}&days=10`),
+        fetchTrend(cropId, effectiveMandi, state),
+        fetchPrices(cropId, effectiveMandi, state, 30),
       ]);
-      const trendJson  = await trendRes.json();
-      const pricesJson = await pricesRes.json();
-      setTrendData(trendJson);
-      setPriceHistory(pricesJson.data || []);
-      try { localStorage.setItem(cacheKey, JSON.stringify({ trendJson, pricesJson })); } catch {}
+
+      if (trendRes) setTrendData(trendRes);
+
+      const records = pricesRes?.data || [];
+      if (records.length) {
+        // Normalize to { price } shape for Sparkline
+        setPriceHistory(records.map(r => ({ price: r.modal_price ?? r.price })));
+        setLiveSource(pricesRes.source || "live");
+      } else {
+        // Fallback to mock sparkline data
+        const mockPx = priceData[cropId]?.[effectiveMandi] || [];
+        if (!priceHistory.length) setPriceHistory(mockPx);
+      }
     } catch {
-      // fallback to local mock prices
-      const mandis  = getMandisByCrop(cropId);
-      const fallback = priceData[cropId]?.[mandis[0]] || [];
-      if (!trendData) setPriceHistory(fallback);
+      const mockPx = priceData[cropId]?.[effectiveMandi] || [];
+      if (!priceHistory.length) setPriceHistory(mockPx);
     } finally {
       setFetching(false);
     }
@@ -67,12 +64,20 @@ export default function Home() {
   const handleCropChange = (cropId) => {
     setSelectedCrop(cropId);
     setSelectedMandi("");
-    if (cropId) fetchLiveData(cropId, selectedState);
+    setTrendData(null);
+    setPriceHistory([]);
+    setLiveSource(null);
+    if (cropId) loadData(cropId, "", selectedState);
+  };
+
+  const handleMandiChange = (mandi) => {
+    setSelectedMandi(mandi);
+    if (selectedCrop && mandi) loadData(selectedCrop, mandi, selectedState);
   };
 
   const handleStateChange = (state) => {
     setSelectedState(state);
-    if (selectedCrop) fetchLiveData(selectedCrop, state);
+    if (selectedCrop) loadData(selectedCrop, selectedMandi, state);
   };
 
   const trend      = trendData?.trend || "stable";
@@ -140,7 +145,7 @@ export default function Home() {
           </label>
           <select
             value={selectedMandi}
-            onChange={(e) => setSelectedMandi(e.target.value)}
+            onChange={(e) => handleMandiChange(e.target.value)}
             disabled={!selectedCrop}
             className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3.5 text-base text-[#1e1c10] outline-none focus:border-[#004c22] disabled:opacity-50"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
@@ -152,10 +157,22 @@ export default function Home() {
 
         {selectedCrop && (
           <div className="bg-white rounded-xl p-3 border border-gray-200">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2"
-              style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {t.sevenDayTrend}
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide"
+                style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {t.sevenDayTrend}
+              </p>
+              {liveSource === "live" && (
+                <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                  ● LIVE
+                </span>
+              )}
+              {liveSource === "cache" && (
+                <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                  ● Cached
+                </span>
+              )}
+            </div>
             {fetching ? (
               <div className="flex items-center justify-center gap-2 py-4 text-gray-400 text-sm">
                 <div className="w-4 h-4 rounded-full border-2 border-gray-200 border-t-gray-400 animate-spin" />
@@ -172,14 +189,16 @@ export default function Home() {
                       <span className="text-xs font-normal text-gray-400 ml-1">({trendData.priceDiff})</span>
                     )}
                   </span>
-                  <span className="text-xs text-gray-400">{t.today}</span>
+                  <span className="text-xs text-gray-400">
+                    {trendData?.lastUpdated || t.today}
+                  </span>
                 </div>
                 {trendData && (
                   <div className="grid grid-cols-3 gap-2 mt-2">
                     {[
-                      { label: "MA5",   value: `₹${parseFloat(trendData.ma5).toFixed(0)}` },
-                      { label: "MA10",  value: `₹${parseFloat(trendData.ma10).toFixed(0)}` },
-                      { label: t.today, value: `₹${trendData.currentPrice || "—"}` },
+                      { label: "MA5",   value: `₹${parseFloat(trendData.ma5 || 0).toFixed(0)}` },
+                      { label: "MA10",  value: `₹${parseFloat(trendData.ma10 || 0).toFixed(0)}` },
+                      { label: t.today, value: trendData.currentPrice ? `₹${trendData.currentPrice}` : "—" },
                     ].map((item) => (
                       <div key={item.label} className="bg-[#f8fafc] rounded-lg px-2 py-1.5 text-center">
                         <p className="text-[10px] text-gray-400">{item.label}</p>
@@ -194,7 +213,7 @@ export default function Home() {
         )}
 
         <button
-          onClick={() => navigate(`/input?crop=${selectedCrop}&mandi=${selectedMandi}&state=${encodeURIComponent(selectedState)}`)}
+          onClick={() => navigate(`/input?crop=${selectedCrop}&mandi=${encodeURIComponent(selectedMandi)}&state=${encodeURIComponent(selectedState)}`)}
           disabled={!selectedCrop || !selectedMandi}
           className="w-full bg-[#feb234] text-[#1e1c10] font-bold text-lg py-4 rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
           style={{ fontFamily: "Manrope, sans-serif", minHeight: "56px" }}
@@ -211,11 +230,11 @@ export default function Home() {
           </h3>
           <div className="grid grid-cols-2 gap-2">
             {CROPS.slice(0, 6).map((crop) => {
-              const mandis   = Object.keys(priceData[crop.id] || {});
-              const prices   = priceData[crop.id]?.[mandis[0]] || [];
-              const todayPx  = prices.length > 0 ? prices[prices.length - 1].price : crop.base;
-              const ti       = crop.trend === "rising" ? "↑" : crop.trend === "falling" ? "↓" : "→";
-              const tc       = crop.trend === "rising" ? "text-green-300" : crop.trend === "falling" ? "text-red-300" : "text-yellow-200";
+              const mandis  = Object.keys(priceData[crop.id] || {});
+              const prices  = priceData[crop.id]?.[mandis[0]] || [];
+              const todayPx = prices.length > 0 ? prices[prices.length - 1].price : crop.base;
+              const ti      = crop.trend === "rising" ? "↑" : crop.trend === "falling" ? "↓" : "→";
+              const tc      = crop.trend === "rising" ? "text-green-300" : crop.trend === "falling" ? "text-red-300" : "text-yellow-200";
               return (
                 <button
                   key={crop.id}

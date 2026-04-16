@@ -62,6 +62,14 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: {
+      // Proxy /mandimind/api/* → http://localhost:8080/api/*
+      [`^${basePath.replace(/\/$/, "")}/api`]: {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(basePath.replace(/\/$/, ""), ""),
+      },
+    },
     fs: {
       strict: true,
       deny: ["**/.*"],

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { priceData, getCropById } from "../data/mockPrices";
 import { getDecision } from "../utils/decisionEngine";
+import { fetchPrices } from "../utils/api";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
 
@@ -24,17 +25,38 @@ export default function Decision() {
   const quantity = searchParams.get("quantity") || "0";
 
   const cropInfo = getCropById(cropId);
-  const prices   = priceData[cropId]?.[mandi] || [];
+
+  // ── Live price data from data.gov.in (via local api-server) ──────────────────
+  const [livePrices,      setLivePrices]      = useState(null);  // priceHistory array
+  const [liveCurrent,     setLiveCurrent]     = useState(null);
+  const [liveRange,       setLiveRange]       = useState(null);
+  const [liveLastUpdated, setLiveLastUpdated] = useState(null);
+  const [priceSource,     setPriceSource]     = useState("mock");
+
+  useEffect(() => {
+    if (!cropId || !mandi) return;
+    fetchPrices(cropId, mandi, stateVal, 30).then((res) => {
+      if (res?.data?.length) {
+        setLivePrices(res.data.map(r => ({ price: r.modal_price ?? r.price })));
+        setLiveCurrent(res.currentPrice);
+        setLiveRange(res.priceRange);
+        setLiveLastUpdated(res.lastUpdated);
+        setPriceSource(res.source || "live");
+      }
+    });
+  }, [cropId, mandi, stateVal]);
+
+  // Prices used for sparkline/decision engine: prefer live, fallback to mock
+  const prices = livePrices ?? (priceData[cropId]?.[mandi] || []);
 
   const localResult = useMemo(
     () => getDecision(prices, { quality, harvest, storage, urgency, variety, cropId }),
-    [cropId, mandi, variety, quality, harvest, storage, urgency]
+    [prices, quality, harvest, storage, urgency, variety, cropId]
   );
 
+  // ── Cloudflare Worker: decision, forecast, mandi-compare ─────────────────────
   const [apiDecision,  setApiDecision]  = useState(null);
   const [apiScore,     setApiScore]     = useState(null);
-  const [apiPriceRange,setApiPriceRange]= useState(null);
-  const [apiCurrentPx, setApiCurrentPx] = useState(null);
   const [forecastData, setForecastData] = useState(null);
   const [mandiCompare, setMandiCompare] = useState([]);
   const [apiLoading,   setApiLoading]   = useState(true);
@@ -46,29 +68,24 @@ export default function Decision() {
 
     const cacheKey = `mm_decision_${cropId}_${stateVal}_${quality}_${harvest}_${storage}_${urgency}`;
 
-    function applyData(dec, fore, comp) {
-      if (dec?.decision)     setApiDecision(dec.decision.toUpperCase());
+    function applyWorkerData(dec, fore, comp) {
+      if (dec?.decision)      setApiDecision(dec.decision.toUpperCase());
       if (dec?.score != null) setApiScore(dec.score);
-      if (dec?.priceRange)   setApiPriceRange(dec.priceRange);
-      if (dec?.currentPrice) setApiCurrentPx(dec.currentPrice);
-      if (fore?.forecast)    setForecastData(fore.forecast);
-      if (comp?.mandis)      setMandiCompare(comp.mandis);
+      if (fore?.forecast)     setForecastData(fore.forecast);
+      if (comp?.mandis)       setMandiCompare(comp.mandis);
     }
 
-    // Show cached data immediately if available — no spinner needed
+    // Show cached data immediately
     try {
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         const { dec, fore, comp } = JSON.parse(cached);
-        applyData(dec, fore, comp);
+        applyWorkerData(dec, fore, comp);
         setApiLoading(false);
       }
     } catch {}
 
-    const params = new URLSearchParams({
-      crop: cropId, state: stateVal,
-      quality, harvest, storage, urgency,
-    });
+    const params = new URLSearchParams({ crop: cropId, state: stateVal, quality, harvest, storage, urgency });
 
     Promise.all([
       fetch(`${WORKER_URL}/api/decision?${params}`),
@@ -77,33 +94,31 @@ export default function Decision() {
     ])
       .then(async ([dRes, fRes, cRes]) => {
         const [dec, fore, comp] = await Promise.all([dRes.json(), fRes.json(), cRes.json()]);
-        applyData(dec, fore, comp);
-        try {
-          localStorage.setItem(cacheKey, JSON.stringify({ dec, fore, comp }));
-        } catch {}
+        applyWorkerData(dec, fore, comp);
+        try { localStorage.setItem(cacheKey, JSON.stringify({ dec, fore, comp })); } catch {}
       })
       .catch(() => setApiError(true))
       .finally(() => setApiLoading(false));
   }, [cropId, stateVal, quality, harvest, storage, urgency]);
 
   const decision     = apiDecision  || localResult.decision;
-  const currentPrice = apiCurrentPx || localResult.currentPrice;
+  const currentPrice = liveCurrent  ?? localResult.currentPrice;
 
   const trendText  =
     localResult.trend === "RISING"  ? t.rising  :
-    localResult.trend === "FALLING" ? t.falling  : t.stable;
+    localResult.trend === "FALLING" ? t.falling : t.stable;
 
   const trendClass =
     localResult.trend === "RISING"  ? "bg-green-100 text-green-700" :
     localResult.trend === "FALLING" ? "bg-red-100 text-red-700"     :
     "bg-gray-100 text-gray-700";
 
-  const totalValue = Number(quantity) > 0
+  const totalValue = Number(quantity) > 0 && currentPrice
     ? `₹${(currentPrice * Number(quantity)).toLocaleString("en-IN")}`
     : null;
 
-  const priceRangeLow  = apiPriceRange?.low  ?? localResult.priceRange.min;
-  const priceRangeHigh = apiPriceRange?.high ?? localResult.priceRange.max;
+  const priceRangeLow  = liveRange?.low  ?? localResult.priceRange.min;
+  const priceRangeHigh = liveRange?.high ?? localResult.priceRange.max;
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -151,6 +166,7 @@ export default function Decision() {
           </>
         )}
 
+        {/* Price summary card */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-3">
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-500">{t.trendLabel}</span>
@@ -159,9 +175,9 @@ export default function Decision() {
 
           <div className="grid grid-cols-3 gap-2">
             {[
-              { label: t.currentPriceLabel, value: `₹${currentPrice.toLocaleString("en-IN")}`, accent: false },
-              { label: t.sevenDayLow,       value: `₹${priceRangeLow.toLocaleString("en-IN")}`,  accent: "green" },
-              { label: t.fifteenDayHigh,    value: `₹${priceRangeHigh.toLocaleString("en-IN")}`, accent: "yellow" },
+              { label: t.currentPriceLabel, value: currentPrice ? `₹${currentPrice.toLocaleString("en-IN")}` : "—", accent: false },
+              { label: t.sevenDayLow,       value: priceRangeLow  ? `₹${Math.round(priceRangeLow).toLocaleString("en-IN")}` : "—",  accent: "green" },
+              { label: t.fifteenDayHigh,    value: priceRangeHigh ? `₹${Math.round(priceRangeHigh).toLocaleString("en-IN")}` : "—", accent: "yellow" },
             ].map((item) => (
               <div key={item.label}
                 className={`rounded-xl p-3 text-center ${
@@ -178,6 +194,23 @@ export default function Decision() {
                 <p className="text-[10px] text-gray-400">{t.per}</p>
               </div>
             ))}
+          </div>
+
+          {/* Data source badge */}
+          <div className="flex items-center justify-between border-t border-gray-50 pt-2">
+            <span className="text-[10px] text-gray-400">
+              {liveLastUpdated ? `Updated: ${liveLastUpdated}` : "Using local estimate"}
+            </span>
+            {priceSource === "live" && (
+              <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                ● LIVE data.gov.in
+              </span>
+            )}
+            {priceSource === "cache" && (
+              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                ● Cached
+              </span>
+            )}
           </div>
 
           {localResult.variantOffset !== 0 && variety && (

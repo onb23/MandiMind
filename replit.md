@@ -33,20 +33,34 @@ MandiMind is a crop price decision system for Indian farmers built with React + 
 - React Router for navigation
 - Recharts for price trend charts
 - LanguageContext for multi-language support (default: Marathi)
-- Mock price data for 5 crops x 5 mandis x 30 days
+- Mock price data fallback for 5 crops x 5 mandis x 30 days
+- Live price data from data.gov.in (Agmarknet) via Express backend
 - Decision engine in `src/utils/decisionEngine.js`
 - Fonts: Manrope (headings), Be Vietnam Pro (body)
 - Colors: primary #004c22, secondary #feb234, background #fff9eb
+
+### Live Data Integration
+- **Source**: data.gov.in resource `9ef84268-d588-465a-a308-a864a43d0070` (Agmarknet daily prices)
+- **API Key**: `DATA_GOV_API_KEY` env var (shared)
+- **Backend routes**: `GET /api/prices`, `GET /api/trend` in `artifacts/api-server/src/routes/prices.ts`
+- **Vite proxy**: `^/api` → `http://localhost:8080` (strips BASE_PATH prefix, forwards to Express)
+- **Frontend utility**: `src/utils/api.js` — `fetchPrices(crop, market, state, days)` and `fetchTrend(crop, market, state)`
+- **Cache**: 30-min in-memory cache on server; localStorage offline cache on frontend
+- **Cloudflare Worker** (`mandimind.omkarborade-11.workers.dev`): decision, forecast, mandi-compare only
 
 ### Folder Structure
 ```
 artifacts/mandimind/src/
   pages/        - Home, FarmerInput, Decision, Comparison, Forecast, Settings
-  components/   - Navbar, BottomNav, DecisionCard, MandiCard, TrendChart
+  components/   - Navbar, BottomNav, DecisionCard, MandiCard, TrendChart, Sparkline
   data/         - mockPrices.js, translations.js
-  utils/        - decisionEngine.js
+  utils/        - decisionEngine.js, api.js (live data fetching)
   context/      - LanguageContext.jsx
   assets/       - logo.svg
+
+artifacts/api-server/src/routes/
+  health.ts     - GET /api/health
+  prices.ts     - GET /api/prices, GET /api/trend (data.gov.in integration)
 ```
 
 ## Key Commands
