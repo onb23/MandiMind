@@ -1,0 +1,43 @@
+modules = ["web", "bash", "nodejs-24"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash start.sh"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "PORT=8080 node --enable-source-maps artifacts/api-server/dist/index.mjs & PORT=5000 node artifacts/mandimind/node_modules/.bin/vite preview --config artifacts/mandimind/vite.config.ts --host 0.0.0.0 --port 5000"]
+build = ["bash", "-c", "pnpm install --frozen-lockfile && cd artifacts/api-server && pnpm run build && cd ../mandimind && PORT=5000 pnpm run build"]
