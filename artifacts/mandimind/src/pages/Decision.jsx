@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { priceData, getCropById } from "../data/mockPrices";
+import { getCropById } from "../data/mockPrices";
 import { getDecision } from "../utils/decisionEngine";
 import { fetchPrices } from "../utils/api";
 import DecisionCard from "../components/DecisionCard";
@@ -46,8 +46,8 @@ export default function Decision() {
     });
   }, [cropId, mandi, stateVal]);
 
-  // Prices used for sparkline/decision engine: prefer live, fallback to mock
-  const prices = livePrices ?? (priceData[cropId]?.[mandi] || []);
+  // Prices used for sparkline/decision engine: prefer live, fallback to empty (no fake data)
+  const prices = livePrices ?? [];
 
   const localResult = useMemo(
     () => getDecision(prices, { quality, harvest, storage, urgency, variety, cropId }),

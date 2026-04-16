@@ -9,14 +9,13 @@ function apiUrl(path) {
 
 /**
  * Fetch price history + current price for a crop+mandi.
- * Returns: { data[], currentPrice, priceRange, lastUpdated, source }
+ * Returns: { data[], currentPrice, priceRange, lastUpdated, stale, source }
  */
 export async function fetchPrices(cropId, market, state = "Maharashtra", days = 30) {
   const url = apiUrl(
     `prices?crop=${cropId}&market=${encodeURIComponent(market)}&state=${encodeURIComponent(state)}&days=${days}`
   );
 
-  // Try live first, fall back to localStorage cache
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -25,13 +24,12 @@ export async function fetchPrices(cropId, market, state = "Maharashtra", days = 
       try {
         localStorage.setItem(
           `mm_prices_${cropId}_${market}`,
-          JSON.stringify({ ...data, cachedAt: new Date().toLocaleDateString("en-IN") })
+          JSON.stringify({ ...data, cachedAt: new Date().toISOString() })
         );
       } catch {}
     }
     return data;
   } catch {
-    // Return localStorage cache with stale flag
     try {
       const raw = localStorage.getItem(`mm_prices_${cropId}_${market}`);
       if (raw) {
@@ -44,7 +42,8 @@ export async function fetchPrices(cropId, market, state = "Maharashtra", days = 
 }
 
 /**
- * Fetch 7-day trend: MA5, MA10, currentPrice, priceDiff
+ * Fetch trend summary: MA5, MA10, currentPrice, priceDiff, trend direction.
+ * Returns null on failure.
  */
 export async function fetchTrend(cropId, market, state = "Maharashtra") {
   const url = apiUrl(
@@ -56,5 +55,36 @@ export async function fetchTrend(cropId, market, state = "Maharashtra") {
     return res.json();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Fetch all mandis for a crop in Maharashtra, with today's price and 7-day avg.
+ * Returns: { mandis: [{mandi, todayPrice, avgPrice, lastUpdated, stale}], lastUpdated, source }
+ */
+export async function fetchCompare(cropId, state = "Maharashtra", days = 7) {
+  const url = apiUrl(
+    `compare?crop=${cropId}&state=${encodeURIComponent(state)}&days=${days}`
+  );
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    try {
+      localStorage.setItem(
+        `mm_compare_${cropId}`,
+        JSON.stringify({ ...data, cachedAt: new Date().toISOString() })
+      );
+    } catch {}
+    return data;
+  } catch {
+    try {
+      const raw = localStorage.getItem(`mm_compare_${cropId}`);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        return { ...cached, source: "cache", stale: true };
+      }
+    } catch {}
+    return { mandis: [], source: "error" };
   }
 }

@@ -1,7 +1,10 @@
 import { useLanguage } from "../context/LanguageContext";
 
-export default function MandiCard({ mandi, todayPrice, avgPrice, isBest, rank }) {
+export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, stale, isBest, rank }) {
   const { t } = useLanguage();
+
+  const displayPrice = todayPrice > 0 ? `₹${todayPrice.toLocaleString("en-IN")}` : "—";
+  const displayAvg   = avgPrice   > 0 ? `₹${avgPrice.toLocaleString("en-IN")}`   : "—";
 
   return (
     <div
@@ -14,7 +17,7 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, isBest, rank })
           <span
             className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
               rank === 1 ? "bg-[#feb234] text-[#1e1c10]" :
-              rank === 2 ? "bg-gray-200 text-gray-600" :
+              rank === 2 ? "bg-gray-200 text-gray-600"   :
               rank === 3 ? "bg-orange-100 text-orange-700" :
               "bg-gray-100 text-gray-400"
             }`}
@@ -28,26 +31,44 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, isBest, rank })
             {mandi}
           </h3>
         </div>
-        {isBest && (
-          <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-medium">
-            {t.bestMandi}
-          </span>
-        )}
+        <div className="flex flex-col items-end gap-1">
+          {isBest && (
+            <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-medium">
+              {t.bestMandi}
+            </span>
+          )}
+          {stale && (
+            <span className="bg-amber-50 text-amber-600 text-[10px] px-2 py-0.5 rounded-full font-medium">
+              ⚠️ Stale
+            </span>
+          )}
+        </div>
       </div>
+
       <div className="flex justify-between items-end">
         <div>
-          <p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{t.todayPrice}</p>
+          <p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+            {t.todayPrice}
+          </p>
           <p className="text-2xl font-extrabold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
-            ₹{todayPrice.toLocaleString("en-IN")}
+            {displayPrice}
           </p>
         </div>
         <div className="text-right">
-          <p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>{t.avgPrice}</p>
+          <p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+            {t.avgPrice} (7d)
+          </p>
           <p className="text-base font-semibold text-gray-600" style={{ fontFamily: "Manrope, sans-serif" }}>
-            ₹{avgPrice.toLocaleString("en-IN")}
+            {displayAvg}
           </p>
         </div>
       </div>
+
+      {lastUpdated && (
+        <p className="text-[10px] text-gray-300 mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          Last: {lastUpdated}
+        </p>
+      )}
     </div>
   );
 }

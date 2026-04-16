@@ -39,12 +39,21 @@ MandiMind is a crop price decision system for Indian farmers built with React + 
 - Fonts: Manrope (headings), Be Vietnam Pro (body)
 - Colors: primary #004c22, secondary #feb234, background #fff9eb
 
+### MVP Constraints (v1.1)
+- **Maharashtra only** — state selector removed, all calls hardcoded to Maharashtra
+- **5 crops only**: Onion, Soybean, Cotton, Tomato, Wheat (removed Rice, Sugarcane, Maize, Chilli, Garlic)
+- **Zero fake/mock prices** — `priceData` mock generator removed; all prices come from Agmarknet API
+- **Data validation**: prices > 0 validated on backend; stale data (>2 days old) flagged with ⚠️ badge
+- **Insufficient data**: Forecast chart requires 7+ real data points; shows "Insufficient data" otherwise
+- **MA5/MA10**: shows "—" when insufficient data (never ₹0)
+- **Trend direction**: computed from actual price movement, not hardcoded mock trend
+
 ### Live Data Integration
 - **Source**: data.gov.in resource `9ef84268-d588-465a-a308-a864a43d0070` (Agmarknet daily prices)
 - **API Key**: `DATA_GOV_API_KEY` env var (shared)
-- **Backend routes**: `GET /api/prices`, `GET /api/trend` in `artifacts/api-server/src/routes/prices.ts`
+- **Backend routes**: `GET /api/prices`, `GET /api/trend`, `GET /api/compare` in `artifacts/api-server/src/routes/prices.ts`
 - **Vite proxy**: `^/api` → `http://localhost:8080` (strips BASE_PATH prefix, forwards to Express)
-- **Frontend utility**: `src/utils/api.js` — `fetchPrices(crop, market, state, days)` and `fetchTrend(crop, market, state)`
+- **Frontend utility**: `src/utils/api.js` — `fetchPrices()`, `fetchTrend()`, `fetchCompare()`
 - **Cache**: 30-min in-memory cache on server; localStorage offline cache on frontend
 - **Cloudflare Worker** (`mandimind.omkarborade-11.workers.dev`): decision, forecast, mandi-compare only
 
