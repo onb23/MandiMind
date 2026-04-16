@@ -71,7 +71,7 @@ async function fetchDataGov(
   const json = await res.json() as { records?: any[] };
 
   const records: PriceRecord[] = (json.records || [])
-    .filter((r: any) => r.modal_price && Number(r.modal_price) > 0 && r.arrival_date)
+    .filter((r: any) => r.modal_price && Number(r.modal_price) >= 50 && r.arrival_date)
     .map((r: any) => ({
       date:        r.arrival_date,
       market:      r.market,
