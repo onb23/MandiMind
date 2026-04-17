@@ -1,24 +1,26 @@
-// All data.gov.in calls are proxied through our Express backend.
-// Never call data.gov.in from the frontend directly.
+// All API calls go to the Cloudflare Worker in production.
+// In development (vite dev): empty string → uses Vite proxy to localhost:8080 Express server.
+// In production (Cloudflare Pages build): uses the deployed Worker URL directly.
 
-const BASE = import.meta.env.BASE_URL; // e.g. "/mandimind/"
-
-function apiUrl(path) {
-  return `${BASE}api/${path}`;
-}
+export const API_BASE = import.meta.env.DEV
+  ? ""
+  : (import.meta.env.VITE_API_BASE ?? "https://mandimind.omkarborade-11.workers.dev");
 
 /**
  * Fetch price history + current price for a crop+mandi.
  * Returns: { data[], currentPrice, priceRange, lastUpdated, stale, source }
  */
 export async function fetchPrices(cropId, market, state = "Maharashtra", days = 30) {
-  const url = apiUrl(
-    `prices?crop=${cropId}&market=${encodeURIComponent(market)}&state=${encodeURIComponent(state)}&days=${days}`
-  );
+  const url =
+    `${API_BASE}/api/prices` +
+    `?crop=${encodeURIComponent(cropId)}` +
+    `&market=${encodeURIComponent(market)}` +
+    `&state=${encodeURIComponent(state)}` +
+    `&days=${days}`;
 
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
     const data = await res.json();
     if (data.data?.length) {
       try {
@@ -29,15 +31,23 @@ export async function fetchPrices(cropId, market, state = "Maharashtra", days = 
       } catch {}
     }
     return data;
-  } catch {
+  } catch (err) {
+    console.error("[MandiMind] fetchPrices failed:", err);
     try {
       const raw = localStorage.getItem(`mm_prices_${cropId}_${market}`);
       if (raw) {
         const cached = JSON.parse(raw);
+        console.warn("[MandiMind] fetchPrices using cached data");
         return { ...cached, source: "cache", stale: true };
       }
     } catch {}
-    return { data: [], currentPrice: null, priceRange: { low: null, high: null }, source: "error" };
+    return {
+      data: [],
+      currentPrice: null,
+      priceRange: { low: null, high: null },
+      source: "error",
+      error: "Unable to fetch live mandi data",
+    };
   }
 }
 
@@ -46,29 +56,36 @@ export async function fetchPrices(cropId, market, state = "Maharashtra", days = 
  * Returns null on failure.
  */
 export async function fetchTrend(cropId, market, state = "Maharashtra") {
-  const url = apiUrl(
-    `trend?crop=${cropId}&market=${encodeURIComponent(market)}&state=${encodeURIComponent(state)}`
-  );
+  const url =
+    `${API_BASE}/api/trend` +
+    `?crop=${encodeURIComponent(cropId)}` +
+    `&market=${encodeURIComponent(market)}` +
+    `&state=${encodeURIComponent(state)}`;
+
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
     return res.json();
-  } catch {
+  } catch (err) {
+    console.error("[MandiMind] fetchTrend failed:", err);
     return null;
   }
 }
 
 /**
- * Fetch all mandis for a crop in Maharashtra, with today's price and 7-day avg.
+ * Fetch all mandis for a crop in Maharashtra, sorted by today's price.
  * Returns: { mandis: [{mandi, todayPrice, avgPrice, lastUpdated, stale}], lastUpdated, source }
  */
 export async function fetchCompare(cropId, state = "Maharashtra", days = 7) {
-  const url = apiUrl(
-    `compare?crop=${cropId}&state=${encodeURIComponent(state)}&days=${days}`
-  );
+  const url =
+    `${API_BASE}/api/compare` +
+    `?crop=${encodeURIComponent(cropId)}` +
+    `&state=${encodeURIComponent(state)}` +
+    `&days=${days}`;
+
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
     const data = await res.json();
     try {
       localStorage.setItem(
@@ -77,14 +94,20 @@ export async function fetchCompare(cropId, state = "Maharashtra", days = 7) {
       );
     } catch {}
     return data;
-  } catch {
+  } catch (err) {
+    console.error("[MandiMind] fetchCompare failed:", err);
     try {
       const raw = localStorage.getItem(`mm_compare_${cropId}`);
       if (raw) {
         const cached = JSON.parse(raw);
+        console.warn("[MandiMind] fetchCompare using cached data");
         return { ...cached, source: "cache", stale: true };
       }
     } catch {}
-    return { mandis: [], source: "error" };
+    return {
+      mandis: [],
+      source: "error",
+      error: "Unable to fetch live mandi data",
+    };
   }
 }

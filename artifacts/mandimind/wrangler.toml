@@ -18,6 +18,7 @@ compatibility_flags = ["nodejs_compat"]
 # The API Worker (mandimind-api) handles all DATA_GOV_API_KEY usage.
 [vars]
 NODE_ENV = "production"
+VITE_API_BASE = "https://mandimind.omkarborade-11.workers.dev"
 
 # ── Preview (Pages) ───────────────────────────────────────────────────────────
 # Cloudflare Pages automatically handles:

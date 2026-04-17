@@ -3,11 +3,9 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { getCropById } from "../data/mockPrices";
 import { getDecision } from "../utils/decisionEngine";
-import { fetchPrices } from "../utils/api";
+import { fetchPrices, fetchCompare } from "../utils/api";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
-
-const WORKER_URL = "https://mandimind.omkarborade-11.workers.dev";
 
 export default function Decision() {
   const { t } = useLanguage();
@@ -26,12 +24,12 @@ export default function Decision() {
 
   const cropInfo = getCropById(cropId);
 
-  // ── Live price data from data.gov.in (via local api-server) ──────────────────
-  const [livePrices,      setLivePrices]      = useState(null);  // priceHistory array
+  // ── Live price data from Cloudflare Worker (/api/prices) ─────────────────
+  const [livePrices,      setLivePrices]      = useState(null);
   const [liveCurrent,     setLiveCurrent]     = useState(null);
   const [liveRange,       setLiveRange]       = useState(null);
   const [liveLastUpdated, setLiveLastUpdated] = useState(null);
-  const [priceSource,     setPriceSource]     = useState("mock");
+  const [priceSource,     setPriceSource]     = useState("loading");
 
   useEffect(() => {
     if (!cropId || !mandi) return;
@@ -42,11 +40,14 @@ export default function Decision() {
         setLiveRange(res.priceRange);
         setLiveLastUpdated(res.lastUpdated);
         setPriceSource(res.source || "live");
+      } else {
+        setPriceSource(res?.source || "error");
+        if (res?.error) console.error("[MandiMind] Decision prices:", res.error);
       }
     });
   }, [cropId, mandi, stateVal]);
 
-  // Prices used for sparkline/decision engine: prefer live, fallback to empty (no fake data)
+  // Prices used for decision engine: prefer live, fallback to empty
   const prices = livePrices ?? [];
 
   const localResult = useMemo(
@@ -54,57 +55,36 @@ export default function Decision() {
     [prices, quality, harvest, storage, urgency, variety, cropId]
   );
 
-  // ── Cloudflare Worker: decision, forecast, mandi-compare ─────────────────────
-  const [apiDecision,  setApiDecision]  = useState(null);
-  const [apiScore,     setApiScore]     = useState(null);
-  const [forecastData, setForecastData] = useState(null);
+  // ── Mandi comparison from Cloudflare Worker (/api/compare) ───────────────
   const [mandiCompare, setMandiCompare] = useState([]);
-  const [apiLoading,   setApiLoading]   = useState(true);
-  const [apiError,     setApiError]     = useState(false);
+  const [compareLoading, setCompareLoading] = useState(true);
+  const [compareError,   setCompareError]   = useState(false);
 
   useEffect(() => {
-    setApiLoading(true);
-    setApiError(false);
+    setCompareLoading(true);
+    setCompareError(false);
 
-    const cacheKey = `mm_decision_${cropId}_${stateVal}_${quality}_${harvest}_${storage}_${urgency}`;
-
-    function applyWorkerData(dec, fore, comp) {
-      if (dec?.decision)      setApiDecision(dec.decision.toUpperCase());
-      if (dec?.score != null) setApiScore(dec.score);
-      if (fore?.forecast)     setForecastData(fore.forecast);
-      if (comp?.mandis)       setMandiCompare(comp.mandis);
-    }
-
-    // Show cached data immediately
-    try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const { dec, fore, comp } = JSON.parse(cached);
-        applyWorkerData(dec, fore, comp);
-        setApiLoading(false);
-      }
-    } catch {}
-
-    const params = new URLSearchParams({ crop: cropId, state: stateVal, quality, harvest, storage, urgency });
-
-    Promise.all([
-      fetch(`${WORKER_URL}/api/decision?${params}`),
-      fetch(`${WORKER_URL}/api/forecast?crop=${cropId}&state=${encodeURIComponent(stateVal)}`),
-      fetch(`${WORKER_URL}/api/mandi-compare?crop=${cropId}&state=${encodeURIComponent(stateVal)}`),
-    ])
-      .then(async ([dRes, fRes, cRes]) => {
-        const [dec, fore, comp] = await Promise.all([dRes.json(), fRes.json(), cRes.json()]);
-        applyWorkerData(dec, fore, comp);
-        try { localStorage.setItem(cacheKey, JSON.stringify({ dec, fore, comp })); } catch {}
+    fetchCompare(cropId, stateVal, 7)
+      .then((res) => {
+        if (res.source === "error") {
+          console.error("[MandiMind] fetchCompare error:", res.error);
+          setCompareError(true);
+        } else if (res.mandis?.length) {
+          setMandiCompare(res.mandis.slice(0, 5));
+        }
       })
-      .catch(() => setApiError(true))
-      .finally(() => setApiLoading(false));
-  }, [cropId, stateVal, quality, harvest, storage, urgency]);
+      .catch((err) => {
+        console.error("[MandiMind] fetchCompare caught:", err);
+        setCompareError(true);
+      })
+      .finally(() => setCompareLoading(false));
+  }, [cropId, stateVal]);
 
-  const decision     = apiDecision  || localResult.decision;
-  const currentPrice = liveCurrent  ?? localResult.currentPrice;
+  const currentPrice   = liveCurrent  ?? localResult.currentPrice;
+  const priceRangeLow  = liveRange?.low  ?? localResult.priceRange.min;
+  const priceRangeHigh = liveRange?.high ?? localResult.priceRange.max;
 
-  const trendText  =
+  const trendText =
     localResult.trend === "RISING"  ? t.rising  :
     localResult.trend === "FALLING" ? t.falling : t.stable;
 
@@ -116,9 +96,6 @@ export default function Decision() {
   const totalValue = Number(quantity) > 0 && currentPrice
     ? `₹${(currentPrice * Number(quantity)).toLocaleString("en-IN")}`
     : null;
-
-  const priceRangeLow  = liveRange?.low  ?? localResult.priceRange.min;
-  const priceRangeHigh = liveRange?.high ?? localResult.priceRange.max;
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -138,33 +115,31 @@ export default function Decision() {
       </div>
 
       <div className="px-4 space-y-4">
-        {apiLoading ? (
-          <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-200 flex flex-col items-center justify-center gap-3">
-            <div className="w-12 h-12 rounded-full border-4 border-[#004c22]/20 border-t-[#004c22] animate-spin" />
-            <p className="text-sm text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {t.loading || "Consulting market engine…"}
+        <DecisionCard decision={localResult.decision} score={localResult.score} />
+
+        {/* Live data status badge */}
+        {priceSource === "live" ? (
+          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+            <span className="text-green-500">✓</span>
+            <p className="text-xs text-green-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Decision powered by MandiMind live market engine
             </p>
           </div>
-        ) : (
-          <>
-            <DecisionCard decision={decision} score={localResult.score} />
-            {apiError ? (
-              <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
-                <span className="text-amber-500">⚠</span>
-                <p className="text-xs text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  Live API unavailable — showing local estimate
-                </p>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
-                <span className="text-green-500">✓</span>
-                <p className="text-xs text-green-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  Decision powered by MandiMind live market engine
-                </p>
-              </div>
-            )}
-          </>
-        )}
+        ) : priceSource === "cache" ? (
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+            <span className="text-amber-500">⚠</span>
+            <p className="text-xs text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Using cached data — live prices unavailable
+            </p>
+          </div>
+        ) : priceSource === "error" ? (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+            <span className="text-red-500">✕</span>
+            <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Unable to fetch live mandi data — showing local estimate
+            </p>
+          </div>
+        ) : null}
 
         {/* Price summary card */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-3">
@@ -232,24 +207,7 @@ export default function Decision() {
           )}
         </div>
 
-        {forecastData && forecastData.length > 0 && (
-          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-            <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
-              {t.priceForecast}
-            </h3>
-            <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${forecastData.length}, 1fr)` }}>
-              {forecastData.map((f) => (
-                <div key={f.day} className="bg-[#f8fafc] rounded-xl p-2.5 text-center">
-                  <p className="text-xs text-gray-400 mb-1">{f.day}</p>
-                  <p className="text-sm font-bold text-[#1e293b]" style={{ fontFamily: "Manrope, sans-serif" }}>
-                    ₹{f.price?.toLocaleString("en-IN")}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
+        {/* Decision explanation */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
           <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
             {t.explanation}
@@ -276,14 +234,28 @@ export default function Decision() {
           </div>
         </div>
 
-        {mandiCompare.length > 0 && (
+        {/* Top mandis for this crop (live from Worker /api/compare) */}
+        {compareLoading ? (
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex items-center gap-3">
+            <div className="w-5 h-5 rounded-full border-2 border-[#004c22]/20 border-t-[#004c22] animate-spin" />
+            <p className="text-xs text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Loading mandi prices…
+            </p>
+          </div>
+        ) : compareError ? (
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+            <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Unable to fetch live mandi data — check your connection
+            </p>
+          </div>
+        ) : mandiCompare.length > 0 ? (
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
             <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
               {t.topMandis}
             </h3>
             <div className="space-y-2">
               {mandiCompare.map((m, idx) => (
-                <div key={m.mandi || m.name || idx}
+                <div key={m.mandi || idx}
                   className={`flex items-center justify-between rounded-xl px-3 py-2.5 ${
                     idx === 0 ? "bg-[#004c22] text-white" : "bg-gray-50"
                   }`}>
@@ -292,18 +264,19 @@ export default function Decision() {
                       idx === 0 ? "bg-[#feb234] text-[#004c22]" : "bg-gray-200 text-gray-600"
                     }`}>{idx + 1}</span>
                     <span className={`text-sm font-medium ${idx === 0 ? "text-white" : "text-gray-700"}`}>
-                      {m.mandi || m.name}
+                      {m.mandi}
                     </span>
                   </div>
                   <span className={`text-sm font-bold ${idx === 0 ? "text-[#feb234]" : "text-[#004c22]"}`}>
-                    ₹{(m.price || m.modal_price)?.toLocaleString("en-IN")}
+                    ₹{m.todayPrice?.toLocaleString("en-IN")}
                   </span>
                 </div>
               ))}
             </div>
           </div>
-        )}
+        ) : null}
 
+        {/* Price trend chart */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
           <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
             {t.priceTrend} — {t.last30Days}
