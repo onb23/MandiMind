@@ -2,9 +2,7 @@
 // In development (vite dev): empty string → uses Vite proxy to localhost:8080 Express server.
 // In production (Cloudflare Pages build): uses the deployed Worker URL directly.
 
-export const API_BASE = import.meta.env.DEV
-  ? ""
-  : (import.meta.env.VITE_API_BASE ?? "https://mandimind.omkarborade-11.workers.dev");
+export const API_BASE = "https://mandimind.omkarborade-11.workers.dev";
 
 /**
  * Fetch price history + current price for a crop+mandi.
