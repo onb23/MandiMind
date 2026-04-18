@@ -9,7 +9,7 @@
 #   wrangler dev --local
 
 name = "mandimind-api"
-main = "src/worker.ts"
+main = "worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 tsconfig = "tsconfig.worker.json"
