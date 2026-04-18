@@ -1,5 +1,8 @@
 import { useLanguage } from "../context/LanguageContext";
 
+const APP_VERSION = "v1.0.4-debug";
+const CREDIT_TEXT = "made by omkar borade";
+
 export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
 
@@ -62,11 +65,20 @@ export default function Settings() {
           >
             {t.tagline}
           </p>
+        </div>
+
+        <div className="mt-8 px-2">
           <p
-            className="text-xs text-gray-400 mt-2"
+            className="text-[11px] text-[#1e1c10] opacity-45"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
-            Version 1.0
+            {APP_VERSION}
+          </p>
+          <p
+            className="text-[11px] text-[#1e1c10] opacity-55 tracking-[0.08em] mt-1"
+            style={{ fontFamily: '"Courier New", Courier, monospace' }}
+          >
+            {CREDIT_TEXT}
           </p>
         </div>
       </div>
