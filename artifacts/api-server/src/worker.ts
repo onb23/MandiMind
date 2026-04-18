@@ -384,7 +384,12 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
 }
 
 async function handleHealth(): Promise<Response> {
-  return json({ status: "ok", runtime: "cloudflare-worker", ts: Date.now() });
+  return json({
+    status: "ok",
+    runtime: "cloudflare-worker",
+    version: "worker-ts-v2",
+    ts: Date.now()
+  });
 }
 
 // ─── Main fetch handler ───────────────────────────────────────────────────────
