@@ -8,5 +8,5 @@
     "moduleResolution": "bundler",
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["src/worker.ts"]
+  "include": ["worker.ts"]
 }
