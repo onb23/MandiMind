@@ -69,6 +69,13 @@ export default function Settings() {
             Version 1.0 — VERSION TEST 031
           </p>
         </div>
+
+        <p
+          className="text-center text-xs text-gray-400 mt-8"
+          style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}
+        >
+          made by omkar borade
+        </p>
       </div>
     </div>
   );
