@@ -36,6 +36,7 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 interface PriceRecord {
   date:        string;
   market:      string;
+  district:    string;
   commodity:   string;
   price:       number;
   min_price:   number;
@@ -98,14 +99,15 @@ async function fetchDataGov(
   return (body.records || [])
     .filter((r: any) => r.modal_price && Number(r.modal_price) >= 50 && r.arrival_date)
     .map((r: any) => ({
-      date:        r.arrival_date,
-      market:      r.market,
-      commodity:   r.commodity,
-      price:       Number(r.modal_price),
-      min_price:   Number(r.min_price),
-      max_price:   Number(r.max_price),
-      modal_price: Number(r.modal_price),
-    }))
+  date:        r.arrival_date,
+  market:      r.market,
+  district:    r.district ?? "",
+  commodity:   r.commodity,
+  price:       Number(r.modal_price),
+  min_price:   Number(r.min_price),
+  max_price:   Number(r.max_price),
+  modal_price: Number(r.modal_price),
+}))
     .sort((a: PriceRecord, b: PriceRecord) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
 }
 
@@ -291,6 +293,96 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
   }
 }
 
+async function handleRecommendation(params: URLSearchParams, env: Env): Promise<Response> {
+  const crop  = params.get("crop") ?? "";
+  const state = params.get("state") ?? "Maharashtra";
+
+  if (!crop) {
+    return json({ error: "crop is required" }, 400);
+  }
+
+  const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
+
+  try {
+    const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500);
+
+    const usable = records.filter(
+      (r) =>
+        r &&
+        r.market &&
+        r.commodity &&
+        r.commodity.trim().toLowerCase() === commodity.trim().toLowerCase() &&
+        r.modal_price !== null &&
+        r.modal_price !== undefined
+    );
+
+    if (!usable.length) {
+      return json({
+        action: "CHECK",
+        confidence: "low",
+        reason: "No usable mandi price records found for this crop.",
+        summary: "No recommendation available.",
+        markets: [],
+      });
+    }
+
+    const sorted = [...usable].sort((a, b) => b.modal_price - a.modal_price);
+
+    const best = sorted[0];
+    const worst = sorted[sorted.length - 1];
+    const average = Math.round(
+      sorted.reduce((sum, r) => sum + r.modal_price, 0) / sorted.length
+    );
+
+    const current = usable[0];
+    const gapFromBest = best.modal_price - current.modal_price;
+
+    let action = "CHECK OTHER MANDI";
+    let confidence = "medium";
+    let reason = "Better mandi prices are available in the current results.";
+
+    if (current.market === best.market || gapFromBest <= average * 0.05) {
+      action = "SELL";
+      confidence = "high";
+      reason = "Your current mandi is at or near the best available modal price.";
+    } else if (gapFromBest > average * 0.20) {
+      action = "CHECK OTHER MANDI";
+      confidence = "high";
+      reason = `A significantly better mandi is available: ${best.market} at ₹${best.modal_price}/quintal.`;
+    }
+
+    return json({
+      crop: commodity,
+      state,
+      action,
+      confidence,
+      reason,
+      currentMarket: current.market,
+      currentDistrict: current.district,
+      currentModalPrice: current.modal_price,
+      bestMarket: best.market,
+      bestDistrict: best.district,
+      bestModalPrice: best.modal_price,
+      worstMarket: worst.market,
+      worstDistrict: worst.district,
+      worstModalPrice: worst.modal_price,
+      averageModalPrice: average,
+      summary: `${action}: ${reason}`,
+      marketsChecked: sorted.length,
+      lastUpdated: best.date,
+      stale: isDataStale(best.date),
+    });
+  } catch {
+    return json({
+      error: "data.gov.in unavailable",
+      action: "CHECK",
+      confidence: "low",
+      reason: "Could not fetch mandi data right now.",
+      summary: "Recommendation unavailable.",
+    }, 502);
+  }
+}
+
 async function handleHealth(): Promise<Response> {
   return json({ status: "ok", runtime: "cloudflare-worker", ts: Date.now() });
 }
@@ -319,10 +411,11 @@ export default {
       return json({ error: "Method not allowed" }, 405);
     }
 
-    if (path === "/api/health")  return handleHealth();
-    if (path === "/api/prices")  return handlePrices(params, env);
-    if (path === "/api/trend")   return handleTrend(params, env);
-    if (path === "/api/compare") return handleCompare(params, env);
+    if (path === "/api/health")         return handleHealth();
+if (path === "/api/prices")         return handlePrices(params, env);
+if (path === "/api/trend")          return handleTrend(params, env);
+if (path === "/api/compare")        return handleCompare(params, env);
+if (path === "/api/recommendation") return handleRecommendation(params, env);
 
     return json({ error: "Not found" }, 404);
   },
