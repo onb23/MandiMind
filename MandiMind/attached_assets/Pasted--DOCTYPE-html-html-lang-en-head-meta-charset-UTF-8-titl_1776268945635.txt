@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MandiMind MVP</title>
+</head>
+<body>
+
+  <h2>MandiMind - Decision Tool</h2>
+
+  <!-- Crop -->
+  <label>Crop:</label>
+  <select id="crop" onchange="updateSelections(this.value)">
+    <option value="">Select Crop</option>
+    <option>Onion</option>
+    <option>Wheat</option>
+    <option>Tomato</option>
+    <option>Cotton</option>
+    <option>Soybean</option>
+    <option>Sugarcane</option>
+    <option>Maize</option>
+    <option>Rice</option>
+    <option>Chilli</option>
+    <option>Garlic</option>
+  </select>
+
+  <br><br>
+
+  <!-- Variety -->
+  <label>Variety:</label>
+  <select id="variety"></select>
+
+  <br><br>
+
+  <!-- Mandi -->
+  <label>Mandi:</label>
+  <select id="mandi"></select>
+
+  <br><br>
+
+  <!-- Quality -->
+  <label>Quality:</label>
+  <select id="quality">
+    <option>High</option>
+    <option>Medium</option>
+    <option>Low</option>
+  </select>
+
+  <br><br>
+
+  <!-- Storage -->
+  <label>Storage Available:</label>
+  <select id="storage">
+    <option>Yes</option>
+    <option>No</option>
+  </select>
+
+  <br><br>
+
+  <!-- Urgency -->
+  <label>Urgency:</label>
+  <select id="urgency">
+    <option>Need cash</option>
+    <option>Flexible</option>
+    <option>Can wait</option>
+  </select>
+
+  <br><br>
+
+  <button onclick="handleDecision()">Get Decision</button>
+
+  <div id="result" style="margin-top:20px;"></div>
+
+<script>
+
+// ================= DATA =================
+
+const mandiData = {
+  "Onion": {
+    varieties: ["N-53", "Local", "Red", "White", "Export Quality"],
+    mandis: ["Lasalgaon", "Pimpalgaon Baswant", "Yeola", "Sinnar", "Manmad"]
+  },
+  "Wheat": {
+    varieties: ["Lokwan", "Sharbati", "MP Wheat"],
+    mandis: ["Pune", "Ahmednagar", "Nashik"]
+  },
+  "Tomato": {
+    varieties: ["Hybrid", "Local", "Desi"],
+    mandis: ["Nashik", "Pune", "Satara", "Ahmednagar"]
+  },
+  "Cotton": {
+    varieties: ["BT Cotton", "Desi Cotton"],
+    mandis: ["Akola", "Amravati", "Yavatmal", "Wardha"]
+  },
+  "Soybean": {
+    varieties: ["JS-335", "MAUS-71"],
+    mandis: ["Latur", "Parbhani", "Nanded"]
+  },
+  "Sugarcane": {
+    varieties: ["Co-86032", "Co-0238"],
+    mandis: ["Kolhapur", "Sangli", "Solapur"]
+  },
+  "Maize": {
+    varieties: ["Hybrid", "Desi"],
+    mandis: ["Dhule", "Jalgaon"]
+  },
+  "Rice": {
+    varieties: ["Basmati", "Sona Masuri", "Kolam"],
+    mandis: ["Raigad", "Ratnagiri"]
+  },
+  "Chilli": {
+    varieties: ["Guntur", "Byadgi", "Local"],
+    mandis: ["Kolhapur", "Sangli"]
+  },
+  "Garlic": {
+    varieties: ["Desi", "Ooty"],
+    mandis: ["Indore", "Mandsaur"]
+  }
+};
+
+// ================= DROPDOWN LOGIC =================
+
+function updateSelections(crop) {
+  const varietyDropdown = document.getElementById("variety");
+  const mandiDropdown = document.getElementById("mandi");
+
+  varietyDropdown.innerHTML = "";
+  mandiDropdown.innerHTML = "";
+
+  if (!mandiData[crop]) return;
+
+  mandiData[crop].varieties.forEach(v => {
+    let opt = document.createElement("option");
+    opt.value = v;
+    opt.text = v;
+    varietyDropdown.appendChild(opt);
+  });
+
+  mandiData[crop].mandis.forEach(m => {
+    let opt = document.createElement("option");
+    opt.value = m;
+    opt.text = m;
+    mandiDropdown.appendChild(opt);
+  });
+}
+
+// ================= DECISION ENGINE =================
+
+function getDecision(input) {
+  let basePrice = 1000;
+
+  if (input.crop === "Onion") basePrice = 1200;
+  if (input.crop === "Tomato") basePrice = 800;
+  if (input.crop === "Cotton") basePrice = 6000;
+
+  if (input.quality === "High") basePrice += 300;
+  if (input.quality === "Low") basePrice -= 250;
+
+  if (input.variety === "Export Quality") basePrice += 500;
+  if (input.variety === "Local") basePrice -= 100;
+
+  if (input.urgency === "Need cash") basePrice -= 200;
+
+  if (input.storage === "Yes" && input.urgency !== "Need cash") {
+    return {
+      advice: "Wait 5-7 days",
+      expectedPrice: basePrice + 300
+    };
+  }
+
+  return {
+    advice: "Sell Now",
+    expectedPrice: basePrice
+  };
+}
+
+// ================= FINAL ACTION =================
+
+function handleDecision() {
+  const input = {
+    crop: document.getElementById("crop").value,
+    variety: document.getElementById("variety").value,
+    mandi: document.getElementById("mandi").value,
+    quality: document.getElementById("quality").value,
+    storage: document.getElementById("storage").value,
+    urgency: document.getElementById("urgency").value
+  };
+
+  const result = getDecision(input);
+
+  document.getElementById("result").innerHTML = `
+    <h3>Advice: ${result.advice}</h3>
+    <p>Expected Price: ₹${result.expectedPrice}</p>
+  `;
+}
+
+</script>
+
+</body>
+</html>

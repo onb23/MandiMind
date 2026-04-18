@@ -1,0 +1,20 @@
+{
+  "name": "MandiMind",
+  "short_name": "MandiMind",
+  "description": "Crop price decision engine for Indian farmers",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#004c22",
+  "theme_color": "#2E7D32",
+  "lang": "hi",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "agriculture", "utilities"]
+}

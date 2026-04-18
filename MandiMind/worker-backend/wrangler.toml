@@ -1,0 +1,31 @@
+# Cloudflare Worker — MandiMind API
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+#
+# Deploy:
+#   1. wrangler secret put DATA_GOV_API_KEY
+#   2. wrangler deploy
+#
+# Dev (local):
+#   wrangler dev --local
+
+name = "mandimind-api"
+main = "worker.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+tsconfig = "tsconfig.worker.json"
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+# Uncomment and set your custom domain after deploying:
+# routes = [
+#   { pattern = "api.yourdomain.com/*", zone_name = "yourdomain.com" }
+# ]
+
+# ── Environment variables ─────────────────────────────────────────────────────
+# Non-secret vars go here. Secrets are set via:
+#   wrangler secret put DATA_GOV_API_KEY
+[vars]
+NODE_ENV = "production"
+
+# ── Observability ─────────────────────────────────────────────────────────────
+[observability]
+enabled = true

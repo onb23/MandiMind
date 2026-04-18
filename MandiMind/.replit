@@ -1,0 +1,73 @@
+modules = ["web", "bash", "nodejs-24"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash start.sh"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 5001
+externalPort = 3002
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 8082
+externalPort = 3003
+
+[[ports]]
+localPort = 18833
+externalPort = 3001
+
+[[ports]]
+localPort = 18834
+externalPort = 3000
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "PORT=8080 node --enable-source-maps artifacts/api-server/dist/index.mjs & PORT=5000 node artifacts/mandimind/node_modules/.bin/vite preview --config artifacts/mandimind/vite.config.ts --host 0.0.0.0 --port 5000"]
+build = ["bash", "-c", "pnpm install --frozen-lockfile && cd artifacts/api-server && pnpm run build && cd ../mandimind && PORT=5000 pnpm run build"]
+
+[userenv]
+
+[userenv.shared]
+
+[userenv.development]
+DATA_GOV_API_KEY = "579b464db66ec23bdd000001e831ce4fa913471b5b14fc8a66b98e24"
+
+[userenv.production]
+DATA_GOV_API_KEY = "579b464db66ec23bdd000001e831ce4fa913471b5b14fc8a66b98e24"
