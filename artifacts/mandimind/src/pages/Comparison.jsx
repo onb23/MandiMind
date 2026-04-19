@@ -13,7 +13,7 @@ export default function Comparison() {
   const [cropLoading, setCropLoading] = useState(true);
 
   const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState(null);
+  const [error,       setError]       = useState(false);
   const [compareData, setCompareData] = useState(null);
   const [compareMode, setCompareMode] = useState("today");
 
@@ -40,11 +40,11 @@ export default function Comparison() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      setError(null);
+      setError(false);
       const result = await fetchAvailableMandis(selectedCrop, "Maharashtra");
       if (!cancelled) {
         if (result.source === "error") {
-          setError("Data unavailable — try again");
+          setError(true);
           setCompareData(null);
         } else {
           setCompareData(result);
@@ -80,7 +80,7 @@ export default function Comparison() {
         </h1>
         {lastUpdated && !loading && (
           <p className="text-xs text-gray-400 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            Updated through: {lastUpdated}
+            {t.updatedThrough}: {lastUpdated}
           </p>
         )}
         <select
@@ -90,7 +90,7 @@ export default function Comparison() {
           className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3 text-base text-[#1e1c10] outline-none focus:border-[#004c22]"
           style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
         >
-          <option value="">{cropLoading ? "Loading available crops…" : "Select crop"}</option>
+          <option value="">{cropLoading ? t.loadingAvailableCrops : t.selectCrop}</option>
           {cropList.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
@@ -133,18 +133,18 @@ export default function Comparison() {
         {!loading && error && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
             <p className="text-red-600 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {error}
+              {t.dataUnavailableTryAgain}
             </p>
-            <p className="text-xs text-red-400 mt-1">माहिती उपलब्ध नाही — पुन्हा प्रयत्न करा</p>
+            <p className="text-xs text-red-400 mt-1">{t.dataUnavailableTryAgain}</p>
           </div>
         )}
 
         {!loading && !error && mandis.length === 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
             <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              No mandi data available in the last 3 days for this crop.
+              {t.noMandiDataLast3Days}
             </p>
-            <p className="text-xs text-amber-500 mt-1">आजचा डेटा उपलब्ध नाही</p>
+            <p className="text-xs text-amber-500 mt-1">{t.todayDataUnavailable}</p>
           </div>
         )}
 
@@ -176,7 +176,7 @@ export default function Comparison() {
                   className={`text-base font-bold mb-2 ${compareMode === "today" ? "text-[#004c22]" : "text-[#775d00]"}`}
                   style={{ fontFamily: "Manrope, sans-serif" }}
                 >
-                  {compareMode === "today" ? "Today Comparison" : "Latest Available (Last 3 Days)"}
+                  {compareMode === "today" ? t.liveToday : t.latestAvailableLast3Days}
                 </h2>
                 <div className="space-y-3">
                   {displayedMandis.map((item, idx) => (
@@ -206,7 +206,7 @@ export default function Comparison() {
             )}
 
             <p className="text-center text-xs text-gray-400 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {displayedMandis.length} mandis · Maharashtra · Source: Agmarknet
+              {t.mandiCountSummary.replace("{count}", displayedMandis.length)}
             </p>
           </>
         )}
