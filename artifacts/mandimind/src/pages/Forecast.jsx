@@ -1,209 +1,217 @@
-import { useState, useEffect } from "react";
-import { useLanguage } from "../context/LanguageContext";
-import { CROPS, getMandisByCrop } from "../data/mockPrices";
-import { fetchPrices, fetchTrend } from "../utils/api";
-import TrendChart from "../components/TrendChart";
+import { useEffect, useMemo, useState } from "react";
+import { getCropNames } from "../data/mockPrices";
+import { fetchCompare } from "../utils/api";
+
+const COUNTRIES = [
+  { id: "UAE", name: "UAE", multiplier: 1.8, cost: 6 },
+  { id: "Bangladesh", name: "Bangladesh", multiplier: 1.4, cost: 4 },
+  { id: "Sri Lanka", name: "Sri Lanka", multiplier: 1.3, cost: 5 },
+];
+
+const DEFAULT_QUANTITY = 1000;
+
+function parsePrice(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
 
 export default function Forecast() {
-  const { t } = useLanguage();
-  const [selectedCrop,  setSelectedCrop]  = useState(CROPS[0].id);
-  const [selectedMandi, setSelectedMandi] = useState(getMandisByCrop(CROPS[0].id)[0] || "");
+  const cropList = getCropNames();
+  const [selectedCrop, setSelectedCrop] = useState(cropList[0]?.id || "onion");
+  const [quantity, setQuantity] = useState(DEFAULT_QUANTITY);
+  const [country, setCountry] = useState(COUNTRIES[0].id);
 
-  const [prices,     setPrices]     = useState([]);
-  const [trendData,  setTrendData]  = useState(null);
-  const [loading,    setLoading]    = useState(false);
-  const [error,      setError]      = useState(null);
-
-  const mandiList = getMandisByCrop(selectedCrop);
-
-  const handleCropChange = (cropId) => {
-    setSelectedCrop(cropId);
-    const newMandis = getMandisByCrop(cropId);
-    const firstMandi = newMandis[0] || "";
-    setSelectedMandi(firstMandi);
-  };
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [mandis, setMandis] = useState([]);
 
   useEffect(() => {
-    if (!selectedCrop || !selectedMandi) return;
     let cancelled = false;
 
-    async function load() {
+    async function loadMandis() {
+      if (!selectedCrop) {
+        setMandis([]);
+        return;
+      }
+
       setLoading(true);
       setError(null);
-      setPrices([]);
-      setTrendData(null);
 
-      const [priceRes, trendRes] = await Promise.all([
-        fetchPrices(selectedCrop, selectedMandi, "Maharashtra", 30),
-        fetchTrend(selectedCrop, selectedMandi, "Maharashtra"),
-      ]);
-
+      const result = await fetchCompare(selectedCrop, "Maharashtra", 7);
       if (cancelled) return;
 
-      if (priceRes.source === "error" && !priceRes.data?.length) {
-        setError("Data unavailable — try again");
-      } else {
-        setPrices(priceRes.data || []);
+      if (result?.source === "error" || !Array.isArray(result?.mandis)) {
+        setMandis([]);
+        setError("Data unavailable");
+        setLoading(false);
+        return;
       }
-      setTrendData(trendRes);
+
+      const sortedMandis = result.mandis
+        .map((item) => ({
+          ...item,
+          todayPrice: parsePrice(item?.todayPrice),
+        }))
+        .filter((item) => item.todayPrice !== null)
+        .sort((a, b) => a.todayPrice - b.todayPrice)
+        .slice(0, 3);
+
+      if (sortedMandis.length === 0) {
+        setError("Data unavailable");
+      }
+
+      setMandis(sortedMandis);
       setLoading(false);
     }
 
-    load();
-    return () => { cancelled = true; };
-  }, [selectedCrop, selectedMandi]);
+    loadMandis();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCrop]);
 
-  const hasEnoughData = prices.length >= 7;
+  const selectedCountry = COUNTRIES.find((c) => c.id === country) || COUNTRIES[0];
+  const baseMandiPrice = mandis[0]?.todayPrice ?? null;
+  const safeQuantity = Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? Number(quantity) : 0;
+  const canCalculate = baseMandiPrice !== null && safeQuantity > 0 && !loading && !error;
 
-  // Use real prices for current/prev calculation
-  const currentPrice = prices.length > 0 ? prices[prices.length - 1].modal_price : null;
-  const prevPrice    = prices.length > 1 ? prices[prices.length - 2].modal_price : currentPrice;
-  const change       = currentPrice != null && prevPrice != null ? currentPrice - prevPrice : null;
-  const changePct    = change != null && prevPrice ? ((change / prevPrice) * 100).toFixed(1) : null;
+  const calculations = useMemo(() => {
+    if (!canCalculate) {
+      return {
+        exportPrice: 0,
+        profitPerKg: 0,
+        totalProfit: 0,
+        profitPercent: 0,
+        recommendation: "WAIT",
+      };
+    }
 
-  // Trend direction must match actual price movement
-  const trendFromData = trendData?.trend || (
-    changePct != null
-      ? (Number(changePct) > 0.1 ? "rising" : Number(changePct) < -0.1 ? "falling" : "stable")
-      : "stable"
-  );
+    const exportPrice = baseMandiPrice * selectedCountry.multiplier;
+    const profitPerKg = exportPrice - baseMandiPrice - selectedCountry.cost;
+    const totalProfit = profitPerKg * safeQuantity;
+    const profitPercent = baseMandiPrice > 0 ? (profitPerKg / baseMandiPrice) * 100 : 0;
 
-  const trendBg =
-    trendFromData === "rising"  ? "bg-green-100 text-green-700" :
-    trendFromData === "falling" ? "bg-red-100 text-red-700"     :
-    "bg-gray-100 text-gray-600";
+    let recommendation = "WAIT";
+    if (profitPerKg > 4) recommendation = "EXPORT";
+    else if (profitPerKg > 1) recommendation = "SELL LOCAL";
 
-  const trendLabel =
-    trendFromData === "rising"  ? t.rising :
-    trendFromData === "falling" ? t.falling :
-    t.stable;
-
-  const trendArrow =
-    trendFromData === "rising"  ? "↑" :
-    trendFromData === "falling" ? "↓" : "→";
-
-  // MA values — show '—' if null (insufficient data)
-  const ma5Display  = trendData?.ma5  ? `₹${Number(trendData.ma5).toFixed(0)}`  : "—";
-  const ma10Display = trendData?.ma10 ? `₹${Number(trendData.ma10).toFixed(0)}` : "—";
-
-  const lastUpdated = trendData?.lastUpdated || (prices.length > 0 ? prices[prices.length - 1].date : null);
-  const isStale     = trendData?.stale ?? false;
+    return {
+      exportPrice,
+      profitPerKg,
+      totalProfit,
+      profitPercent,
+      recommendation,
+    };
+  }, [canCalculate, baseMandiPrice, selectedCountry, safeQuantity]);
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div className="px-4 pt-6 pb-4">
         <h1
-          className="text-2xl font-extrabold text-[#004c22] mb-1"
+          className="text-2xl font-extrabold text-[#004c22] mb-3"
           style={{ fontFamily: "Manrope, sans-serif" }}
         >
-          {t.forecast}
+          Trade Intelligence
         </h1>
-        {lastUpdated && (
-          <p className="text-xs text-gray-400 mb-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {isStale
-              ? `⚠️ Data may be outdated · Last: ${lastUpdated}`
-              : `Updated: ${lastUpdated}`}
-          </p>
-        )}
+
+        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Crop</label>
+            <select
+              value={selectedCrop}
+              onChange={(e) => setSelectedCrop(e.target.value)}
+              className="w-full bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
+              style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+            >
+              {cropList.map((crop) => (
+                <option key={crop.id} value={crop.id}>
+                  {crop.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Quantity (kg)</label>
+            <input
+              type="number"
+              min="1"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value === "" ? "" : Number(e.target.value))}
+              className="w-full bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Destination country</label>
+            <select
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              className="w-full bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
+            >
+              {COUNTRIES.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {error && (
+            <p className="text-sm text-red-600 font-semibold">Data unavailable</p>
+          )}
+        </div>
       </div>
 
       <div className="px-4 space-y-4">
-        <div className="flex gap-2">
-          <select
-            value={selectedCrop}
-            onChange={(e) => handleCropChange(e.target.value)}
-            className="flex-1 bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
-            {CROPS.map((c) => (
-              <option key={c.id} value={c.id}>{c.name.split(" / ")[0]}</option>
-            ))}
-          </select>
-          <select
-            value={selectedMandi}
-            onChange={(e) => setSelectedMandi(e.target.value)}
-            className="flex-1 bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
-            {mandiList.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-        </div>
-
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <div className="w-8 h-8 rounded-full border-4 border-gray-200 border-t-[#004c22] animate-spin" />
-            <p className="text-sm text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {t.fetchingLive}
-            </p>
-          </div>
-        )}
-
-        {!loading && error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
-            <p className="text-red-600 font-semibold text-sm">{error}</p>
-            <p className="text-xs text-red-400 mt-1">माहिती उपलब्ध नाही — पुन्हा प्रयत्न करा</p>
-          </div>
-        )}
-
-        {!loading && !error && currentPrice !== null && (
-          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-sm text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {t.todayPrice}
-              </span>
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${trendBg}`}>
-                  {trendArrow} {trendLabel}
-                </span>
-                {changePct !== null && (
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${Number(changePct) >= 0 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-                    {Number(changePct) >= 0 ? "+" : ""}{changePct}%
-                  </span>
-                )}
-              </div>
+        <section className="bg-[#004c22] rounded-xl p-4 text-white">
+          <p className="text-xs text-green-100">Total Profit</p>
+          <p className="text-3xl font-extrabold mt-1">₹{Math.round(calculations.totalProfit).toLocaleString("en-IN")}</p>
+          <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+            <div className="bg-white/10 rounded-lg p-2">
+              <p className="text-[10px] text-green-100">Profit/kg</p>
+              <p className="text-sm font-bold">₹{calculations.profitPerKg.toFixed(2)}</p>
             </div>
-            <p className="text-3xl font-extrabold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
-              ₹{currentPrice.toLocaleString("en-IN")}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">{t.perQuintal}</p>
+            <div className="bg-white/10 rounded-lg p-2">
+              <p className="text-[10px] text-green-100">Profit %</p>
+              <p className="text-sm font-bold">{calculations.profitPercent.toFixed(1)}%</p>
+            </div>
+            <div className="bg-white/10 rounded-lg p-2">
+              <p className="text-[10px] text-green-100">Recommendation</p>
+              <p className="text-sm font-bold">{calculations.recommendation}</p>
+            </div>
+          </div>
+          {!canCalculate && <p className="text-xs text-green-100 mt-3">Calculation disabled until mandi data is available.</p>}
+        </section>
 
-            <div className="grid grid-cols-2 gap-2 mt-3">
-              {[
-                { label: "MA5",  value: ma5Display  },
-                { label: "MA10", value: ma10Display },
-              ].map((item) => (
-                <div key={item.label} className="bg-[#f8fafc] rounded-lg px-3 py-2 text-center">
-                  <p className="text-[10px] text-gray-400">{item.label}</p>
-                  <p className="text-sm font-bold text-[#1e293b]">{item.value}</p>
+        <section className="bg-white border border-gray-200 rounded-xl p-4">
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">Best Mandis (Top 3)</h2>
+
+          {loading ? (
+            <p className="text-sm text-gray-500">Fetching mandi prices…</p>
+          ) : mandis.length === 0 ? (
+            <p className="text-sm text-gray-500">Data unavailable</p>
+          ) : (
+            <div className="space-y-2">
+              {mandis.map((mandi, index) => (
+                <div key={`${mandi.mandi}-${index}`} className="flex justify-between items-center bg-[#f8fafc] rounded-lg px-3 py-2">
+                  <p className="text-sm font-medium text-[#1e1c10]">{index + 1}. {mandi.mandi}</p>
+                  <p className="text-sm font-bold text-[#004c22]">₹{mandi.todayPrice.toLocaleString("en-IN")}</p>
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </section>
 
-        {!loading && !error && (
-          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-            <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
-              {t.last30Days}
-            </h3>
-            {hasEnoughData ? (
-              <TrendChart data={prices} height={220} />
-            ) : (
-              <div className="flex flex-col items-center justify-center py-10 text-center">
-                <span className="text-3xl mb-2">📉</span>
-                <p className="text-sm text-gray-500 font-medium">Insufficient data</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  {prices.length > 0
-                    ? `Only ${prices.length} data point${prices.length === 1 ? "" : "s"} available (need 7+)`
-                    : "No historical data available for this mandi"}
-                </p>
-                <p className="text-xs text-gray-300 mt-1">पुरेसा डेटा उपलब्ध नाही</p>
-              </div>
-            )}
+        <section className="bg-white border border-gray-200 rounded-xl p-4">
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">Trade Breakdown</h2>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-gray-500">Buy (Mandi Price)</span><span className="font-semibold">₹{baseMandiPrice?.toFixed(2) ?? "0.00"}/kg</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Sell (Export Price)</span><span className="font-semibold">₹{calculations.exportPrice.toFixed(2)}/kg</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Cost</span><span className="font-semibold">₹{selectedCountry.cost.toFixed(2)}/kg</span></div>
+            <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">Profit / kg</span><span className="font-bold text-[#004c22]">₹{calculations.profitPerKg.toFixed(2)}</span></div>
           </div>
-        )}
+        </section>
       </div>
     </div>
   );
