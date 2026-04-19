@@ -47,9 +47,9 @@ export function getDecision(prices, inputs) {
   else if (u === "CAN_WAIT" || u === "CAN WAIT") score += 15;
 
   let decision;
-  if (score >= 60) decision = "SELL";
-  else if (score >= 35) decision = "HOLD";
-  else decision = "WAIT";
+  if (score <= 30) decision = "SELL";
+  else if (score <= 60) decision = "WAIT";
+  else decision = "HOLD";
 
   const priceValues = prices
     .map((p) => p.price)
