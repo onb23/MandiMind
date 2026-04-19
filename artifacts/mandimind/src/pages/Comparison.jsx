@@ -72,8 +72,8 @@ export default function Comparison() {
   const bestMandi = displayedMandis[0] || null;
   const bestLabel = bestMandi
     ? bestMandi.bucket === "live_today"
-      ? "Best price today"
-      : "Best latest price"
+      ? t.comparisonBestPriceToday
+      : t.comparisonBestLatestPrice
     : "";
   const lastUpdated = compareData?.lastUpdated || liveTodayMandis[0]?.lastUpdated || mandis[0]?.lastUpdated;
   const comparableMandis = displayedMandis.filter(
@@ -142,7 +142,7 @@ export default function Comparison() {
             }`}
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
-            Today
+            {t.priceTypeToday}
           </button>
           <button
             type="button"
@@ -152,7 +152,7 @@ export default function Comparison() {
             }`}
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
-            Latest (1–3 days)
+            {t.priceTypeLatest}
           </button>
         </div>
       </div>
@@ -188,9 +188,9 @@ export default function Comparison() {
         {!loading && !error && mandis.length > 0 && displayedMandis.length === 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
             <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              No mandis with today&apos;s price available for this crop.
+              {t.comparisonNoTodayMandis}
             </p>
-            <p className="text-xs text-amber-500 mt-1">Try Latest (1–3 days) mode.</p>
+            <p className="text-xs text-amber-500 mt-1">{t.comparisonTryLatestMode}</p>
           </div>
         )}
 
@@ -243,12 +243,12 @@ export default function Comparison() {
                       freshnessDays={item.freshnessDays}
                       freshnessText={
                         compareMode === "today"
-                          ? "Today"
+                          ? t.today
                           : item.bucket === "live_today"
-                            ? "Today"
+                            ? t.today
                             : item.freshnessDays
-                              ? `${item.freshnessDays} day${item.freshnessDays > 1 ? "s" : ""} old`
-                              : "Latest available"
+                              ? (item.freshnessDays === 1 ? t.dayOld : t.daysOld).replace("{days}", item.freshnessDays)
+                              : t.latestAvailable
                       }
                       isBest={idx === 0}
                       rank={idx + 1}

@@ -129,8 +129,8 @@ export default function Home() {
   }, [priceType, selectedMandi, visibleMandis]);
 
   const formatInr = (price) => {
-    if (!Number.isFinite(price)) return "N/A";
-    return `₹${Math.round(price).toLocaleString("en-IN")}/qtl`;
+    if (!Number.isFinite(price)) return t.naLabel;
+    return `₹${Math.round(price).toLocaleString("en-IN")} ${t.perQuintal}`;
   };
 
   const getMandiOptionLabel = (item) => {
