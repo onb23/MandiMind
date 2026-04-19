@@ -15,6 +15,7 @@ export default function Comparison() {
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState(null);
   const [compareData, setCompareData] = useState(null);
+  const [compareMode, setCompareMode] = useState("today");
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +63,10 @@ export default function Comparison() {
   const latestAvailableMandis = mandis
     .filter((item) => item.bucket === "latest_available")
     .sort((a, b) => (b.todayPrice ?? 0) - (a.todayPrice ?? 0));
-  const bestMandi = liveTodayMandis[0] || null;
+  const latestModeMandis = [...liveTodayMandis, ...latestAvailableMandis]
+    .sort((a, b) => (b.todayPrice ?? 0) - (a.todayPrice ?? 0));
+  const displayedMandis = compareMode === "today" ? liveTodayMandis : latestModeMandis;
+  const bestMandi = displayedMandis[0] || null;
   const lastUpdated = compareData?.lastUpdated || liveTodayMandis[0]?.lastUpdated || latestAvailableMandis[0]?.lastUpdated;
 
   return (
@@ -91,6 +95,29 @@ export default function Comparison() {
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+
+        <div className="mt-3 bg-white rounded-xl p-1 border border-gray-200 grid grid-cols-2 gap-1">
+          <button
+            type="button"
+            onClick={() => setCompareMode("today")}
+            className={`text-sm py-2 px-2 rounded-lg font-semibold transition-colors ${
+              compareMode === "today" ? "bg-[#004c22] text-white" : "text-[#004c22] bg-transparent"
+            }`}
+            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => setCompareMode("latest")}
+            className={`text-sm py-2 px-2 rounded-lg font-semibold transition-colors ${
+              compareMode === "latest" ? "bg-[#775d00] text-white" : "text-[#775d00] bg-transparent"
+            }`}
+            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+          >
+            Latest (1–3 days)
+          </button>
+        </div>
       </div>
 
       <div className="px-4">
@@ -121,12 +148,21 @@ export default function Comparison() {
           </div>
         )}
 
+        {!loading && !error && mandis.length > 0 && displayedMandis.length === 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
+            <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              No mandis with today&apos;s price available for this crop.
+            </p>
+            <p className="text-xs text-amber-500 mt-1">Try Latest (1–3 days) mode.</p>
+          </div>
+        )}
+
         {!loading && !error && mandis.length > 0 && (
           <>
-            {bestMandi && (
+            {bestMandi && displayedMandis.length > 0 && (
               <div className="bg-[#004c22] rounded-xl p-3 mb-4 flex items-center justify-between">
                 <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  {t.bestMandi}:
+                  {t.bestMandi} ({compareMode === "today" ? "Today" : "Latest"}):
                 </span>
                 <span className="text-[#feb234] font-bold text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
                   {bestMandi.mandi} — ₹{bestMandi.todayPrice.toLocaleString("en-IN")}
@@ -134,20 +170,33 @@ export default function Comparison() {
               </div>
             )}
 
-            {liveTodayMandis.length > 0 && (
-              <div className="mb-5">
-                <h2 className="text-base font-bold text-[#004c22] mb-2" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  Live Today
+            {displayedMandis.length > 0 && (
+              <div className="mb-2">
+                <h2
+                  className={`text-base font-bold mb-2 ${compareMode === "today" ? "text-[#004c22]" : "text-[#775d00]"}`}
+                  style={{ fontFamily: "Manrope, sans-serif" }}
+                >
+                  {compareMode === "today" ? "Today Comparison" : "Latest Available (Last 3 Days)"}
                 </h2>
                 <div className="space-y-3">
-                  {liveTodayMandis.map((item, idx) => (
+                  {displayedMandis.map((item, idx) => (
                     <MandiCard
-                      key={`live-${item.mandi}`}
+                      key={`${compareMode}-${item.mandi}`}
                       mandi={item.mandi}
                       todayPrice={item.todayPrice}
                       avgPrice={item.avgPrice}
                       lastUpdated={item.lastUpdated}
-                      stale={false}
+                      stale={compareMode === "latest" && item.bucket === "latest_available"}
+                      freshnessDays={item.freshnessDays}
+                      freshnessText={
+                        compareMode === "today"
+                          ? "Today"
+                          : item.bucket === "live_today"
+                            ? "Today"
+                            : item.freshnessDays
+                              ? `${item.freshnessDays} day${item.freshnessDays > 1 ? "s" : ""} old`
+                              : "Latest available"
+                      }
                       isBest={idx === 0}
                       rank={idx + 1}
                     />
@@ -156,31 +205,8 @@ export default function Comparison() {
               </div>
             )}
 
-            {latestAvailableMandis.length > 0 && (
-              <div className="mb-2">
-                <h2 className="text-base font-bold text-[#775d00] mb-2" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  Latest Available (Last 3 Days)
-                </h2>
-                <div className="space-y-3">
-                  {latestAvailableMandis.map((item, idx) => (
-                    <MandiCard
-                      key={`latest-${item.mandi}`}
-                      mandi={item.mandi}
-                      todayPrice={item.todayPrice}
-                      avgPrice={item.avgPrice}
-                      lastUpdated={item.lastUpdated}
-                      stale
-                      freshnessDays={item.freshnessDays}
-                      isBest={false}
-                      rank={idx + 1}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
             <p className="text-center text-xs text-gray-400 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {liveTodayMandis.length + latestAvailableMandis.length} mandis · Maharashtra · Source: Agmarknet
+              {displayedMandis.length} mandis · Maharashtra · Source: Agmarknet
             </p>
           </>
         )}
