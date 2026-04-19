@@ -27,11 +27,11 @@ export default function MandiCard({
           : "flat";
   const trendLabel =
     trendDirection === "up"
-      ? "▲ Up vs 7d avg"
+      ? t.comparisonTrendUpVsAvg
       : trendDirection === "down"
-        ? "▼ Down vs 7d avg"
+        ? t.comparisonTrendDownVsAvg
         : trendDirection === "flat"
-          ? "• Flat vs 7d avg"
+          ? t.comparisonTrendFlatVsAvg
           : null;
 
   return (
