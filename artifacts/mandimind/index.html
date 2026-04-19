@@ -29,7 +29,79 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Be+Vietnam+Pro:wght@400;500;600&display=swap" rel="stylesheet">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main
+        style="
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          background: #fff9eb;
+          color: #1e1c10;
+          font-family: 'Be Vietnam Pro', sans-serif;
+        "
+      >
+        <section
+          style="
+            width: min(420px, 100%);
+            border: 1px solid #e3dcc5;
+            border-radius: 16px;
+            padding: 24px;
+            background: #fffef9;
+          "
+        >
+          <p
+            style="
+              font-size: 0.8rem;
+              text-transform: uppercase;
+              letter-spacing: 0.08em;
+              color: #5f5a43;
+              margin-bottom: 8px;
+            "
+          >
+            MandiMind
+          </p>
+          <h1
+            style="
+              font-family: 'Manrope', sans-serif;
+              font-size: 1.6rem;
+              line-height: 1.25;
+              margin-bottom: 8px;
+            "
+          >
+            Live mandi intelligence for farmers and agri buyers
+          </h1>
+          <p style="color: #5f5a43; margin-bottom: 16px">
+            Loading live mandi insights…
+          </p>
+          <div
+            aria-hidden="true"
+            style="
+              height: 6px;
+              border-radius: 999px;
+              background: linear-gradient(90deg, #2e7d32 35%, #d8d2bb 35%);
+            "
+          ></div>
+        </section>
+      </main>
+    </div>
+    <noscript>
+      <div
+        style="
+          max-width: 640px;
+          margin: 16px auto;
+          padding: 14px 16px;
+          border-radius: 12px;
+          border: 1px solid #e3dcc5;
+          background: #fffef9;
+          color: #1e1c10;
+          font-family: 'Be Vietnam Pro', sans-serif;
+        "
+      >
+        JavaScript is required for live mandi prices and personalized recommendations in MandiMind.
+      </div>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
