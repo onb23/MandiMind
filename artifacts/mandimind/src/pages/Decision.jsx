@@ -28,7 +28,7 @@ export default function Decision() {
   const cropInfo = getCropById(cropId);
   const formatTemplate = (template, params) =>
     Object.entries(params).reduce(
-      (result, [key, value]) => result.replace(`{${key}}`, value),
+      (result, [key, value]) => result.replace(new RegExp(`\\{${key}\\}`, "g"), value),
       template
     );
 
