@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getCropNames } from "../data/mockPrices";
-import { fetchCompare } from "../utils/api";
+import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
 
 const COUNTRIES = [
@@ -102,9 +101,9 @@ function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry,
 }
 
 export default function Trade() {
-  const cropList = getCropNames();
-  const defaultCropId = cropList[0]?.id || "onion";
-  const [selectedCrop, setSelectedCrop] = useState(cropList[0]?.id || "onion");
+  const [cropList, setCropList] = useState([]);
+  const [selectedCrop, setSelectedCrop] = useState("");
+  const [cropLoading, setCropLoading] = useState(true);
   const [quantity, setQuantity] = useState(DEFAULT_QUANTITY);
   const [country, setCountry] = useState(COUNTRIES[0].id);
 
@@ -113,6 +112,27 @@ export default function Trade() {
   const [mandis, setMandis] = useState([]);
   const [shareMessage, setShareMessage] = useState("");
   const inputSectionRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCrops() {
+      setCropLoading(true);
+      const crops = await fetchAvailableCrops("Maharashtra");
+      if (cancelled) return;
+      setCropList(crops);
+      setSelectedCrop((prev) => {
+        if (prev && crops.some((crop) => crop.id === prev)) return prev;
+        return crops[0]?.id || "";
+      });
+      setCropLoading(false);
+    }
+
+    loadCrops();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,7 +146,7 @@ export default function Trade() {
       setLoading(true);
       setError(null);
 
-      const result = await fetchCompare(selectedCrop, "Maharashtra", 7);
+      const result = await fetchAvailableMandis(selectedCrop, "Maharashtra");
       if (cancelled) return;
 
       if (result?.source === "error" || !Array.isArray(result?.mandis)) {
@@ -142,7 +162,7 @@ export default function Trade() {
           todayPrice: parsePrice(item?.todayPrice),
         }))
         .filter((item) => item.todayPrice !== null)
-        .sort((a, b) => a.todayPrice - b.todayPrice)
+        .sort((a, b) => b.todayPrice - a.todayPrice)
         .slice(0, 3);
 
       if (sortedMandis.length === 0) {
@@ -220,7 +240,7 @@ https://mandimind.pages.dev/trade`;
   }
 
   function handleCheckAnotherTrade() {
-    setSelectedCrop(defaultCropId);
+    setSelectedCrop(cropList[0]?.id || "");
     setQuantity(DEFAULT_QUANTITY);
     setCountry(COUNTRIES[0].id);
     setShareMessage("");
@@ -256,9 +276,11 @@ https://mandimind.pages.dev/trade`;
             <select
               value={selectedCrop}
               onChange={(e) => setSelectedCrop(e.target.value)}
+              disabled={cropLoading}
               className="w-full bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
               style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
             >
+              {cropLoading && <option value="">Loading available crops…</option>}
               {cropList.map((crop) => (
                 <option key={crop.id} value={crop.id}>
                   {crop.name}
