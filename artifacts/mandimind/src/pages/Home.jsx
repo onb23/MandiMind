@@ -4,6 +4,15 @@ import { useLanguage } from "../context/LanguageContext";
 import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
 import logo from "../assets/logo.svg";
 
+function FieldSkeleton() {
+  return (
+    <div className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3.5">
+      <div className="h-4 w-2/5 rounded bg-gray-100 animate-pulse mb-2" />
+      <div className="h-4 w-3/5 rounded bg-gray-100 animate-pulse" />
+    </div>
+  );
+}
+
 export default function Home() {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -13,6 +22,7 @@ export default function Home() {
 
   const [cropList, setCropList] = useState([]);
   const [cropLoading, setCropLoading] = useState(true);
+  const [cropError, setCropError] = useState("");
 
   const [mandiOptions, setMandiOptions] = useState([]);
   const [mandiLoading, setMandiLoading] = useState(false);
@@ -32,19 +42,31 @@ export default function Home() {
     setSelectedMandi(mandi);
   };
 
+  const safeErrorMessage =
+    "Live mandi data is temporarily unavailable. Please try again in a few minutes.";
 
   useEffect(() => {
     let cancelled = false;
     async function loadCrops() {
       setCropLoading(true);
-      const crops = await fetchAvailableCrops("Maharashtra");
-      if (!cancelled) {
-        setCropList(crops);
-        if (selectedCrop && !crops.some((crop) => crop.id === selectedCrop)) {
-          setSelectedCrop("");
-          setSelectedMandi("");
+      setCropError("");
+      try {
+        const crops = await fetchAvailableCrops("Maharashtra");
+        if (!cancelled) {
+          setCropList(crops);
+          if (selectedCrop && !crops.some((crop) => crop.id === selectedCrop)) {
+            setSelectedCrop("");
+            setSelectedMandi("");
+          }
         }
-        setCropLoading(false);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("[MandiMind] loadCrops failed:", error);
+          setCropList([]);
+          setCropError(safeErrorMessage);
+        }
+      } finally {
+        if (!cancelled) setCropLoading(false);
       }
     }
 
@@ -74,7 +96,7 @@ export default function Home() {
 
       if (result?.source === "error") {
         setMandiOptions([]);
-        setMandiError(result.error || "Unable to load mandis");
+        setMandiError(safeErrorMessage);
       } else {
         setMandiOptions(result?.mandis || []);
         if (selectedMandi && !(result?.mandis || []).some((item) => item.mandi === selectedMandi)) {
@@ -121,19 +143,30 @@ export default function Home() {
           >
             {t.selectCrop}
           </label>
-          <select
-            value={selectedCrop}
-            onChange={(e) => handleCropChange(e.target.value)}
-            disabled={cropLoading}
-            className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3.5 text-base text-[#1e1c10] outline-none focus:border-[#004c22]"
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
-            <option value="">{cropLoading ? "Loading available crops…" : t.selectCrop}</option>
-            {cropList.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          {!cropLoading && cropList.length === 0 && (
+          {cropLoading ? (
+            <FieldSkeleton />
+          ) : (
+            <select
+              value={selectedCrop}
+              onChange={(e) => handleCropChange(e.target.value)}
+              disabled={cropLoading}
+              className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3.5 text-base text-[#1e1c10] outline-none focus:border-[#004c22]"
+              style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+            >
+              <option value="">{t.selectCrop}</option>
+              {cropList.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          )}
+          {!cropLoading && cropError && (
+            <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                We could not refresh crop availability right now. {safeErrorMessage}
+              </p>
+            </div>
+          )}
+          {!cropLoading && !cropError && cropList.length === 0 && (
             <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               No crops with usable data in the last 3 days.
             </p>
@@ -162,9 +195,11 @@ export default function Home() {
             ))}
           </select>
           {selectedCrop && !mandiLoading && mandiError && (
-            <p className="text-xs text-red-600 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {mandiError}
-            </p>
+            <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                Live mandi listings could not be updated. {mandiError}
+              </p>
+            </div>
           )}
           {selectedCrop && !mandiLoading && !mandiError && visibleMandis.length === 0 && (
             <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
