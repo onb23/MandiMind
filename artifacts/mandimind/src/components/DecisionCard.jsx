@@ -14,22 +14,22 @@ function getConfidence(score, t, penalty = 0, disallowHigh = false) {
 
 function getConfidenceReason({ score, confidenceLevel, hasFallbackData, decision }) {
   if (decision === "NOT ENOUGH DATA") {
-    return "Low confidence because recent mandi records are unavailable.";
+    return "notEnoughData";
   }
 
   if (hasFallbackData) {
-    return "Medium confidence because latest available data is used instead of same-day live data.";
+    return "fallbackData";
   }
 
   if (confidenceLevel === 2) {
-    return `High confidence because score is ${score}/100 with aligned trend and farmer inputs.`;
+    return "high";
   }
 
   if (confidenceLevel === 1) {
-    return `Medium confidence because score is ${score}/100 and some market signals are mixed.`;
+    return "medium";
   }
 
-  return `Low confidence because score is ${score}/100 and conditions favor immediate action.`;
+  return "low";
 }
 
 export default function DecisionCard({
@@ -62,8 +62,8 @@ export default function DecisionCard({
     "NOT ENOUGH DATA": {
       bg: "bg-gray-600",
       glow: "shadow-gray-200",
-      text: "NOT ENOUGH DATA",
-      desc: "No recent mandi data available for this crop/mandi",
+      text: t.notEnoughData,
+      desc: t.noRecentMandiDataForCropMandi,
     },
   };
 
@@ -75,12 +75,22 @@ export default function DecisionCard({
     hasFallbackData: confidencePenalty > 0,
     decision,
   });
+  const confidenceReasonText =
+    confidenceReason === "notEnoughData"
+      ? t.confidenceReasonNotEnoughData
+      : confidenceReason === "fallbackData"
+        ? t.confidenceReasonFallbackData
+        : confidenceReason === "high"
+          ? t.confidenceReasonHigh.replace("{score}", score)
+          : confidenceReason === "medium"
+            ? t.confidenceReasonMedium.replace("{score}", score)
+            : t.confidenceReasonLow.replace("{score}", score);
 
   return (
     <div className={`${c.bg} rounded-2xl p-6 text-white shadow-xl ${c.glow}`}>
       <div className="space-y-2">
         <p className="text-xs uppercase tracking-[0.12em] opacity-80">
-          {t.recommendedAction || "Recommended action"}
+          {t.recommendedAction}
         </p>
         <div
           className="text-4xl font-extrabold leading-none"
@@ -98,12 +108,12 @@ export default function DecisionCard({
 
       <div className="mt-5 bg-white/15 rounded-xl py-2 px-3 text-center">
         <span className="text-xs tracking-wide opacity-80">
-          {(t.confidence || "CONFIDENCE").toUpperCase()}: {" "}
+          {t.confidence.toUpperCase()}: {" "}
         </span>
         <span className="text-sm font-bold tracking-wide">{confidence.label}</span>
       </div>
       <p className="text-xs mt-2 opacity-90" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-        {confidenceReason}
+        {confidenceReasonText}
       </p>
     </div>
   );
