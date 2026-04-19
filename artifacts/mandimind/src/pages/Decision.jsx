@@ -135,6 +135,18 @@ export default function Decision() {
     : null;
 
   const bestOpportunity = mandiCompare.length > 0 ? mandiCompare[0] : null;
+  const coverageCount = mandiCompare.length > 0 ? mandiCompare.length : (mandi ? 1 : 0);
+  const decisionUrgency = urgency === "need_money"
+    ? { label: "High", className: "bg-red-100 text-red-700 border-red-200" }
+    : urgency === "flexible"
+      ? { label: "Medium", className: "bg-amber-100 text-amber-700 border-amber-200" }
+      : { label: "Low", className: "bg-green-100 text-green-700 border-green-200" };
+
+  const uncertaintyConditions = forceNotEnoughData
+    ? "No recent mandi records are available yet. Recheck when fresh Agmarknet data appears."
+    : usesFallbackData
+      ? `Data is ${mandiDataStatus.freshnessDays} day(s) old. Recommendation may change after the next mandi update.`
+      : "Recommendation may change quickly if mandi arrivals, weather disruptions, or transport costs shift in the next 24–48 hours.";
   const bestOpportunityText = (() => {
     if (!bestOpportunity || !Number.isFinite(bestOpportunity.todayPrice)) {
       return "Best opportunity will appear once mandi comparison data is available.";
@@ -335,6 +347,37 @@ https://mandimind.pages.dev/`;
           </p>
           <p className="text-sm text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
             {decisionResult.risks?.secondaryRisk || "Secondary risk: logistics or urgency can lower realized selling price."}
+          </p>
+        </div>
+
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-3">
+          <h3 className="text-base font-bold text-[#1e1c10]" style={{ fontFamily: "Manrope, sans-serif" }}>
+            Trust & transparency
+          </h3>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-500">Data coverage</span>
+            <span className="text-sm font-semibold text-[#004c22]">
+              {coverageCount} mandi{coverageCount === 1 ? "" : "s"} considered
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-500">Decision urgency</span>
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${decisionUrgency.className}`}>
+              {decisionUrgency.label}
+            </span>
+          </div>
+
+          <div className="border-t border-gray-100 pt-2">
+            <p className="text-xs font-bold uppercase text-[#004c22] mb-1">When this may change</p>
+            <p className="text-sm text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              {uncertaintyConditions}
+            </p>
+          </div>
+
+          <p className="text-xs text-gray-500 border-t border-gray-100 pt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+            This is guidance based on available mandi data, not a guarantee.
           </p>
         </div>
 
