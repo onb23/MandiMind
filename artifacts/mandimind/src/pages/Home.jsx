@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
+import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode } from "../utils/mandiAvailability";
 import logo from "../assets/logo.svg";
 
 function FieldSkeleton() {
@@ -30,10 +30,7 @@ export default function Home() {
   const [mandiError, setMandiError] = useState("");
 
   const visibleMandis = useMemo(() => {
-    return mandiOptions.filter((item) => {
-      if (priceType === "today") return Boolean(item?.todayOption?.isUsable);
-      return Boolean(item?.latestOption?.isUsable);
-    });
+    return getMandisForPriceMode(mandiOptions, priceType);
   }, [mandiOptions, priceType]);
 
   const handleCropChange = (cropId) => {
