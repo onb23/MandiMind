@@ -85,6 +85,15 @@ export default function Decision() {
   const currentPrice   = liveCurrent  ?? localResult.currentPrice;
   const priceRangeLow  = liveRange?.low  ?? localResult.priceRange.min;
   const priceRangeHigh = liveRange?.high ?? localResult.priceRange.max;
+  const isLiveData = priceSource === "live";
+
+  const formatPrice = (value) => (
+    Number.isFinite(value) ? `₹${value.toLocaleString("en-IN")}` : "Data not available"
+  );
+
+  const formatRoundedPrice = (value) => (
+    Number.isFinite(value) ? `₹${Math.round(value).toLocaleString("en-IN")}` : "Data not available"
+  );
 
   const trendText =
     localResult.trend === "RISING"  ? t.rising  :
@@ -95,7 +104,7 @@ export default function Decision() {
     localResult.trend === "FALLING" ? "bg-red-100 text-red-700"     :
     "bg-gray-100 text-gray-700";
 
-  const totalValue = Number(quantity) > 0 && currentPrice
+  const totalValue = Number(quantity) > 0 && Number.isFinite(currentPrice)
     ? `₹${(currentPrice * Number(quantity)).toLocaleString("en-IN")}`
     : null;
 
@@ -104,7 +113,7 @@ export default function Decision() {
 
 Crop: ${cropInfo.name.split(" / ")[0]}
 Mandi: ${mandi}
-Current Price: ${currentPrice ? `₹${currentPrice.toLocaleString("en-IN")}` : "N/A"}
+Current Price: ${Number.isFinite(currentPrice) ? `₹${currentPrice.toLocaleString("en-IN")}` : "Data not available"}
 Decision: ${localResult.decision}
 Reason: ${localResult.explanation?.trend || "N/A"}
 
@@ -143,28 +152,21 @@ https://mandimind.pages.dev/`;
         <DecisionCard decision={localResult.decision} score={localResult.score} />
 
         {/* Live data status badge */}
-        {priceSource === "live" ? (
+        {isLiveData ? (
           <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
             <span className="text-green-500">✓</span>
             <p className="text-xs text-green-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Decision powered by MandiMind live market engine
+              LIVE data (Agmarknet)
             </p>
           </div>
-        ) : priceSource === "cache" ? (
+        ) : (
           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
             <span className="text-amber-500">⚠</span>
             <p className="text-xs text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Using cached data — live prices unavailable
+              Estimated data (not live)
             </p>
           </div>
-        ) : priceSource === "error" ? (
-          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
-            <span className="text-red-500">✕</span>
-            <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Unable to fetch live mandi data — showing local estimate
-            </p>
-          </div>
-        ) : null}
+        )}
 
         {/* Price summary card */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-3">
@@ -175,9 +177,9 @@ https://mandimind.pages.dev/`;
 
           <div className="grid grid-cols-3 gap-2">
             {[
-              { label: t.currentPriceLabel, value: currentPrice ? `₹${currentPrice.toLocaleString("en-IN")}` : "—", accent: false },
-              { label: t.sevenDayLow,       value: priceRangeLow  ? `₹${Math.round(priceRangeLow).toLocaleString("en-IN")}` : "—",  accent: "green" },
-              { label: t.fifteenDayHigh,    value: priceRangeHigh ? `₹${Math.round(priceRangeHigh).toLocaleString("en-IN")}` : "—", accent: "yellow" },
+              { label: t.currentPriceLabel, value: formatPrice(currentPrice), accent: false },
+              { label: t.sevenDayLow,       value: formatRoundedPrice(priceRangeLow),  accent: "green" },
+              { label: t.fifteenDayHigh,    value: formatRoundedPrice(priceRangeHigh), accent: "yellow" },
             ].map((item) => (
               <div key={item.label}
                 className={`rounded-xl p-3 text-center ${
@@ -199,18 +201,15 @@ https://mandimind.pages.dev/`;
           {/* Data source badge */}
           <div className="flex items-center justify-between border-t border-gray-50 pt-2">
             <span className="text-[10px] text-gray-400">
-              {liveLastUpdated ? `Updated: ${liveLastUpdated}` : "Using local estimate"}
+              {isLiveData && liveLastUpdated ? `Updated: ${liveLastUpdated}` : "Estimated data (not live)"}
             </span>
-            {priceSource === "live" && (
-              <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-                ● LIVE data.gov.in
-              </span>
-            )}
-            {priceSource === "cache" && (
-              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                ● Cached
-              </span>
-            )}
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+              isLiveData
+                ? "text-green-600 bg-green-50"
+                : "text-amber-600 bg-amber-50"
+            }`}>
+              {isLiveData ? "● LIVE data (Agmarknet)" : "● Estimated data (not live)"}
+            </span>
           </div>
 
           {localResult.variantOffset !== 0 && variety && (
@@ -293,7 +292,7 @@ https://mandimind.pages.dev/`;
                     </span>
                   </div>
                   <span className={`text-sm font-bold ${idx === 0 ? "text-[#feb234]" : "text-[#004c22]"}`}>
-                    ₹{m.todayPrice?.toLocaleString("en-IN")}
+                    {formatPrice(m.todayPrice)}
                   </span>
                 </div>
               ))}
