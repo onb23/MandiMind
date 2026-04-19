@@ -45,6 +45,16 @@ export default function Home() {
   const safeErrorMessage =
     "Live mandi data is temporarily unavailable. Please try again in a few minutes.";
 
+  const snapshotCrops = ["Onion", "Tomato", "Soybean"];
+  const snapshotComparison = [
+    { mandi: "Lasalgaon", crop: "Onion", modalPrice: "₹2,350/qtl", trend: "+4%" },
+    { mandi: "Pune", crop: "Tomato", modalPrice: "₹1,780/qtl", trend: "-2%" },
+  ];
+  const snapshotRecommendation = {
+    action: "HOLD",
+    note: "Onion prices are rising steadily in top mandis. Consider waiting 2–3 days before selling.",
+  };
+
   useEffect(() => {
     let cancelled = false;
     async function loadCrops() {
@@ -136,6 +146,75 @@ export default function Home() {
       </div>
 
       <div className="px-4 space-y-3">
+        <section className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+          <div>
+            <h2
+              className="text-base font-extrabold text-[#004c22]"
+              style={{ fontFamily: "Manrope, sans-serif" }}
+            >
+              Today&apos;s Mandi Snapshot
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Preview insights before selecting crop and mandi.
+            </p>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#1e1c10] mb-1.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Example crops
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {snapshotCrops.map((crop) => (
+                <span
+                  key={crop}
+                  className="inline-flex items-center rounded-full bg-[#fff9eb] border border-amber-200 px-3 py-1 text-xs text-[#1e1c10]"
+                  style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+                >
+                  {crop}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#1e1c10] mb-1.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Sample mandi comparison
+            </p>
+            <div className="space-y-2">
+              {snapshotComparison.map((row) => (
+                <div
+                  key={`${row.mandi}-${row.crop}`}
+                  className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 bg-[#fcfcfc]"
+                >
+                  <div>
+                    <p className="text-xs font-semibold text-[#1e1c10]" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                      {row.mandi} · {row.crop}
+                    </p>
+                    <p className="text-xs text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                      Modal price: {row.modalPrice}
+                    </p>
+                  </div>
+                  <span className={`text-xs font-bold ${row.trend.startsWith("+") ? "text-green-600" : "text-red-600"}`}>
+                    {row.trend}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[#cde8d6] bg-[#f2fbf5] px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#1e1c10]" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Example recommendation
+            </p>
+            <p className="text-sm font-extrabold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
+              {snapshotRecommendation.action}
+            </p>
+            <p className="text-xs text-gray-600 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              {snapshotRecommendation.note}
+            </p>
+          </div>
+        </section>
+
         <div>
           <label
             className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-1.5"
