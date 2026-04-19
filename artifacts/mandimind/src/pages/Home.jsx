@@ -52,7 +52,18 @@ export default function Home() {
   ];
   const snapshotRecommendation = {
     action: "HOLD",
-    note: "Onion prices are rising steadily in top mandis. Consider waiting 2–3 days before selling.",
+    reasons: [
+      "Onion modal prices are trending upward across major mandis this week.",
+      "Price spread between nearby mandis is stable, indicating low short-term downside risk.",
+      "Waiting 2–3 days may improve returns if the rising trend continues.",
+    ],
+    updatedAt: "19 Apr 2026, 09:30 AM",
+    source: "Agmarknet",
+  };
+  const actionStyles = {
+    SELL: "bg-green-100 text-green-700 border-green-200",
+    HOLD: "bg-amber-100 text-amber-700 border-amber-200",
+    WAIT: "bg-orange-100 text-orange-700 border-orange-200",
   };
 
   useEffect(() => {
@@ -202,16 +213,45 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="rounded-lg border border-[#cde8d6] bg-[#f2fbf5] px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#1e1c10]" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Example recommendation
-            </p>
-            <p className="text-sm font-extrabold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
-              {snapshotRecommendation.action}
-            </p>
-            <p className="text-xs text-gray-600 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {snapshotRecommendation.note}
-            </p>
+          <div className="rounded-lg border border-[#cde8d6] bg-[#f2fbf5] px-3 py-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#1e1c10]" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                  Recommendation snapshot
+                </p>
+                <p className="text-[10px] text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                  Demo Snapshot
+                </p>
+              </div>
+              <span
+                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-extrabold tracking-wide ${actionStyles[snapshotRecommendation.action] || "bg-gray-100 text-gray-700 border-gray-200"}`}
+                style={{ fontFamily: "Manrope, sans-serif" }}
+              >
+                {snapshotRecommendation.action}
+              </span>
+            </div>
+
+            <div className="mt-2 rounded-md bg-white/70 border border-white px-2.5 py-2">
+              <p className="text-[11px] font-semibold text-[#1e1c10] mb-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                Why this action
+              </p>
+              <ul className="list-disc pl-4 space-y-1">
+                {snapshotRecommendation.reasons.map((reason) => (
+                  <li
+                    key={reason}
+                    className="text-xs text-gray-600"
+                    style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+                  >
+                    {reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-2 flex items-center justify-between text-[10px] text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              <span>Last updated: {snapshotRecommendation.updatedAt}</span>
+              <span className="font-semibold text-[#004c22]">Source: {snapshotRecommendation.source}</span>
+            </div>
           </div>
         </section>
 
