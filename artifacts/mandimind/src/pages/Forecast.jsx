@@ -90,6 +90,8 @@ export default function Forecast() {
         totalProfit: 0,
         profitPercent: 0,
         recommendation: "WAIT",
+        confidenceLevel: "LOW",
+        reasonMessage: "Export not profitable due to high costs",
       };
     }
 
@@ -102,12 +104,27 @@ export default function Forecast() {
     if (profitPerKg > 4) recommendation = "EXPORT";
     else if (profitPerKg > 1) recommendation = "SELL LOCAL";
 
+    let confidenceLevel = "LOW";
+    if (profitPerKg > 5) confidenceLevel = "HIGH";
+    else if (profitPerKg > 2) confidenceLevel = "MEDIUM";
+
+    let reasonMessage = "Export not profitable due to high costs";
+    if (profitPerKg > 0 && profitPerKg <= 2) {
+      reasonMessage = "Profit margin too low, better to wait";
+    } else if (profitPerKg > 2 && profitPerKg <= 5) {
+      reasonMessage = "Moderate profit opportunity, consider local sale";
+    } else if (profitPerKg > 5) {
+      reasonMessage = "Strong export opportunity";
+    }
+
     return {
       exportPrice,
       profitPerKg,
       totalProfit,
       profitPercent,
       recommendation,
+      confidenceLevel,
+      reasonMessage,
     };
   }, [canCalculate, baseMandiPricePerKg, selectedCountry, safeQuantity]);
 
@@ -187,6 +204,14 @@ export default function Forecast() {
               <p className="text-[10px] text-green-100">Recommendation</p>
               <p className="text-sm font-bold">{calculations.recommendation}</p>
             </div>
+          </div>
+          <div className="mt-3 space-y-1">
+            <p className="text-xs text-green-100">
+              Confidence Level: <span className="font-semibold text-white">{calculations.confidenceLevel}</span>
+            </p>
+            <p className="text-xs text-green-100">
+              Reason: <span className="font-semibold text-white">{calculations.reasonMessage}</span>
+            </p>
           </div>
           {!canCalculate && <p className="text-xs text-green-100 mt-3">Calculation disabled until mandi data is available.</p>}
         </section>
