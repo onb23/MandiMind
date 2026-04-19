@@ -5,6 +5,46 @@
 export const API_BASE = "https://mandimind.omkarborade-11.workers.dev";
 
 /**
+ * Fetch recent available crops for a state based on real Agmarknet records.
+ * Returns: { crops: [{ id, name, commodity, latestDate, recordCount }], windowDays, source }
+ */
+export async function fetchCropUniverse(state = "Maharashtra", days = 15) {
+  const url =
+    `${API_BASE}/api/crops` +
+    `?state=${encodeURIComponent(state)}` +
+    `&days=${days}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
+    const data = await res.json();
+    try {
+      localStorage.setItem(
+        `mm_crops_${state}_${days}`,
+        JSON.stringify({ ...data, cachedAt: new Date().toISOString() })
+      );
+    } catch {}
+    return data;
+  } catch (err) {
+    console.error("[MandiMind] fetchCropUniverse failed:", err);
+    try {
+      const raw = localStorage.getItem(`mm_crops_${state}_${days}`);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        console.warn("[MandiMind] fetchCropUniverse using cached data");
+        return { ...cached, source: "cache", stale: true };
+      }
+    } catch {}
+    return {
+      crops: [],
+      windowDays: days,
+      source: "error",
+      error: "Unable to fetch live crop availability",
+    };
+  }
+}
+
+/**
  * Fetch price history + current price for a crop+mandi.
  * Returns: { data[], currentPrice, priceRange, lastUpdated, stale, source }
  */
