@@ -134,6 +134,32 @@ export default function Decision() {
     ? `₹${(currentPrice * Number(quantity)).toLocaleString("en-IN")}`
     : null;
 
+  const bestOpportunity = mandiCompare.length > 0 ? mandiCompare[0] : null;
+  const bestOpportunityText = (() => {
+    if (!bestOpportunity || !Number.isFinite(bestOpportunity.todayPrice)) {
+      return "Best opportunity will appear once mandi comparison data is available.";
+    }
+
+    const selectedComparablePrice = Number.isFinite(currentPrice) ? currentPrice : null;
+    const priceEdge = selectedComparablePrice == null
+      ? null
+      : Math.round(bestOpportunity.todayPrice - selectedComparablePrice);
+
+    if (priceEdge == null) {
+      return `${bestOpportunity.mandi} is currently most favorable due to the highest quoted price in your state comparison.`;
+    }
+
+    if (priceEdge > 0) {
+      return `${bestOpportunity.mandi} is most favorable right now, offering about ₹${priceEdge.toLocaleString("en-IN")} more per quintal than your selected mandi.`;
+    }
+
+    if (priceEdge === 0) {
+      return `${bestOpportunity.mandi} matches your selected mandi's price, so transport cost should decide final selling point.`;
+    }
+
+    return `Your selected mandi is already stronger by about ₹${Math.abs(priceEdge).toLocaleString("en-IN")} per quintal versus ${bestOpportunity.mandi}.`;
+  })();
+
   async function handleShareDecision() {
     const shareText = `MandiMind Mandi Decision
 
@@ -277,6 +303,39 @@ https://mandimind.pages.dev/`;
               </span>
             </div>
           )}
+        </div>
+
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-3">
+          <h3 className="text-base font-bold text-[#1e1c10]" style={{ fontFamily: "Manrope, sans-serif" }}>
+            Estimated impact
+          </h3>
+          <p className={`text-sm font-semibold ${
+            decisionResult.estimatedImpact?.direction === "positive"
+              ? "text-green-700"
+              : decisionResult.estimatedImpact?.direction === "negative"
+                ? "text-red-700"
+                : "text-amber-700"
+          }`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+            {decisionResult.estimatedImpact?.summary || "+₹80–₹120 per quintal if trend continues"}
+          </p>
+          <div className="pt-2 border-t border-gray-100">
+            <p className="text-xs font-bold uppercase text-[#004c22] mb-1">Best opportunity</p>
+            <p className="text-sm text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              {bestOpportunityText}
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-2">
+          <h3 className="text-base font-bold text-[#1e1c10]" style={{ fontFamily: "Manrope, sans-serif" }}>
+            Risks to watch
+          </h3>
+          <p className="text-sm text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+            {decisionResult.risks?.mainRisk || "Main risk: near-term mandi volatility may reduce expected returns."}
+          </p>
+          <p className="text-sm text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+            {decisionResult.risks?.secondaryRisk || "Secondary risk: logistics or urgency can lower realized selling price."}
+          </p>
         </div>
 
         {/* Decision explanation */}
