@@ -194,6 +194,11 @@ const translations = {
     mandiInsightsTitle: "Mandi insights will appear here",
     mandiInsightsDesc: "Start by selecting a crop, then choose a mandi to view live prices and recommendations.",
     selectCropToBegin: "Select crop to begin",
+    simpleInsight: "Simple insight",
+    comparisonInsightSell: "Today's prices are above recent average — consider selling now.",
+    comparisonInsightWait: "Today's prices are below recent average — waiting may help.",
+    comparisonInsightNeutral: "Today's prices are close to recent average — neutral signal.",
+    comparisonInsightBasis: "Average today: ₹{today} vs recent average: ₹{recent}",
   },
   hi: {
     title: "मंडीमाइंड",
@@ -390,6 +395,11 @@ const translations = {
     mandiInsightsTitle: "मंडी जानकारी यहाँ आएगी",
     mandiInsightsDesc: "पहले फसल चुनें, फिर लाइव भाव और सिफारिश देखने के लिए मंडी चुनें।",
     selectCropToBegin: "शुरू करने के लिए फसल चुनें",
+    simpleInsight: "सरल संकेत",
+    comparisonInsightSell: "आज का भाव हाल के औसत से ऊपर है — अभी बेचना बेहतर हो सकता है।",
+    comparisonInsightWait: "आज का भाव हाल के औसत से नीचे है — थोड़ा रुकना फायदेमंद हो सकता है।",
+    comparisonInsightNeutral: "आज का भाव हाल के औसत के करीब है — संकेत तटस्थ है।",
+    comparisonInsightBasis: "आज का औसत: ₹{today} बनाम हाल का औसत: ₹{recent}",
   },
   mr: {
     title: "मंडीमाइंड",
@@ -586,6 +596,11 @@ const translations = {
     mandiInsightsTitle: "मंडी माहिती येथे दिसेल",
     mandiInsightsDesc: "प्रथम पीक निवडा, नंतर लाइव भाव व शिफारस पाहण्यासाठी मंडी निवडा.",
     selectCropToBegin: "सुरू करण्यासाठी पीक निवडा",
+    simpleInsight: "सोपा संकेत",
+    comparisonInsightSell: "आजचा भाव अलीकडच्या सरासरीपेक्षा जास्त आहे — आत्ता विक्रीचा विचार करा.",
+    comparisonInsightWait: "आजचा भाव अलीकडच्या सरासरीपेक्षा कमी आहे — थोडा वेळ थांबणे उपयोगी ठरू शकते.",
+    comparisonInsightNeutral: "आजचा भाव अलीकडच्या सरासरीजवळ आहे — संकेत तटस्थ आहे.",
+    comparisonInsightBasis: "आजची सरासरी: ₹{today} विरुद्ध अलीकडची सरासरी: ₹{recent}",
   },
 };
 
