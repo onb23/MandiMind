@@ -16,6 +16,23 @@ export default function MandiCard({
 
   const displayPrice = todayPrice > 0 ? `₹${todayPrice.toLocaleString("en-IN")}` : "—";
   const displayAvg   = avgPrice   > 0 ? `₹${avgPrice.toLocaleString("en-IN")}`   : "—";
+  const trendDelta = Number.isFinite(todayPrice) && Number.isFinite(avgPrice) ? todayPrice - avgPrice : null;
+  const trendDirection =
+    trendDelta === null
+      ? null
+      : trendDelta > 0
+        ? "up"
+        : trendDelta < 0
+          ? "down"
+          : "flat";
+  const trendLabel =
+    trendDirection === "up"
+      ? "▲ Up vs 7d avg"
+      : trendDirection === "down"
+        ? "▼ Down vs 7d avg"
+        : trendDirection === "flat"
+          ? "• Flat vs 7d avg"
+          : null;
 
   return (
     <div
@@ -57,7 +74,7 @@ export default function MandiCard({
           )}
           {stale && !freshnessText && (
             <span className="bg-amber-50 text-amber-600 text-[10px] px-2 py-0.5 rounded-full font-medium">
-              {freshnessDays ? `${freshnessDays} day${freshnessDays > 1 ? "s" : ""} old` : "Latest available"}
+              {freshnessDays ? t.daysOld.replace("{days}", freshnessDays) : t.latestAvailable}
             </span>
           )}
         </div>
@@ -66,7 +83,7 @@ export default function MandiCard({
       <div className="flex justify-between items-end">
         <div>
           <p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {stale ? "Latest price" : t.todayPrice}
+            {stale ? t.latestPrice : t.todayPrice}
           </p>
           <p className="text-2xl font-extrabold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
             {displayPrice}
@@ -74,7 +91,7 @@ export default function MandiCard({
         </div>
         <div className="text-right">
           <p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {t.avgPrice} (7d)
+            {t.avgPrice7d}
           </p>
           <p className="text-base font-semibold text-gray-600" style={{ fontFamily: "Manrope, sans-serif" }}>
             {displayAvg}
@@ -84,7 +101,22 @@ export default function MandiCard({
 
       {lastUpdated && (
         <p className="text-[10px] text-gray-300 mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-          Last: {lastUpdated}
+          {t.lastUpdatedPrefix} {lastUpdated}
+        </p>
+      )}
+
+      {trendLabel && (
+        <p
+          className={`text-[11px] mt-1 font-medium ${
+            trendDirection === "up"
+              ? "text-green-600"
+              : trendDirection === "down"
+                ? "text-red-500"
+                : "text-gray-500"
+          }`}
+          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+        >
+          {trendLabel}
         </p>
       )}
     </div>
