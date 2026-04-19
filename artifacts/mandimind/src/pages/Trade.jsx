@@ -234,12 +234,21 @@ https://mandimind.pages.dev/trade`;
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div ref={inputSectionRef} className="px-4 pt-6 pb-4">
-        <h1
-          className="text-2xl font-extrabold text-[#004c22] mb-3"
-          style={{ fontFamily: "Manrope, sans-serif" }}
-        >
-          Trade Intelligence
-        </h1>
+        <div className="mb-4 space-y-2">
+          <h1
+            className="text-[30px] leading-tight sm:text-4xl font-extrabold text-[#004c22] tracking-tight break-words"
+            style={{ fontFamily: "Manrope, sans-serif" }}
+          >
+            <span className="block">Stop Losing Money in Mandis</span>
+            <span className="block">Check Before You Sell</span>
+          </h1>
+          <p className="text-sm sm:text-base text-[#1e1c10]">
+            Compare mandi price vs export value and see your real profit in seconds.
+          </p>
+          <p className="text-xs sm:text-sm text-gray-500">
+            Used by traders to avoid wrong selling decisions
+          </p>
+        </div>
 
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
           <div>
