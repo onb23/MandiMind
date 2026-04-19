@@ -42,8 +42,7 @@ export default function Home() {
     setSelectedMandi(mandi);
   };
 
-  const safeErrorMessage =
-    "Live mandi data is temporarily unavailable. Please try again in a few minutes.";
+  const safeErrorMessage = t.liveMandiTemporarilyUnavailable;
 
   const jumpToCropSelector = () => {
     const cropField = document.getElementById("crop-selector");
@@ -51,6 +50,7 @@ export default function Home() {
       cropField.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   };
+
 
 
   useEffect(() => {
@@ -138,7 +138,7 @@ export default function Home() {
         <div className="mt-2 inline-flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-full px-3 py-1">
           <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
           <span className="text-xs text-green-700 font-medium" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            Maharashtra · Live Agmarknet Data
+            {t.maharashtraLiveAgmarknetData}
           </span>
         </div>
       </div>
@@ -193,13 +193,13 @@ export default function Home() {
           {!cropLoading && cropError && (
             <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                We could not refresh crop availability right now. {safeErrorMessage}
+                {t.cropAvailabilityRefreshFailed} {safeErrorMessage}
               </p>
             </div>
           )}
           {!cropLoading && !cropError && cropList.length === 0 && (
             <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              No crops with usable data in the last 3 days.
+              {t.noCropsUsableLast3Days}
             </p>
           )}
         </div>
@@ -218,23 +218,25 @@ export default function Home() {
             className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3.5 text-base text-[#1e1c10] outline-none focus:border-[#004c22] disabled:opacity-50"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
-            <option value="">{selectedCrop ? (mandiLoading ? "Loading live mandis…" : t.selectMandi) : "— Select crop first —"}</option>
+            <option value="">
+              {selectedCrop ? (mandiLoading ? t.loadingLiveMandis : t.selectMandi) : t.selectCropFirst}
+            </option>
             {visibleMandis.map((item) => (
               <option key={item.mandi} value={item.mandi}>
-                {item.mandi}{item.bucket === "latest_available" ? ` (${item.freshnessDays}d old)` : ""}
+                {item.mandi}{item.bucket === "latest_available" ? ` (${t.dayShortOld.replace("{days}", item.freshnessDays)})` : ""}
               </option>
             ))}
           </select>
           {selectedCrop && !mandiLoading && mandiError && (
             <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                Live mandi listings could not be updated. {mandiError}
+                {t.liveMandiListingsUpdateFailed} {mandiError}
               </p>
             </div>
           )}
           {selectedCrop && !mandiLoading && !mandiError && visibleMandis.length === 0 && (
             <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              No usable mandi data available right now for this crop.
+              {t.noUsableMandiDataForCrop}
             </p>
           )}
         </div>
@@ -263,7 +265,7 @@ export default function Home() {
               {t.comparison}
             </p>
             <p className="text-xs text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Compare prices across all Maharashtra mandis with live data.
+              {t.comparePricesAcrossMaharashtra}
             </p>
           </div>
           <button
@@ -284,7 +286,7 @@ export default function Home() {
               {t.forecast}
             </p>
             <p className="text-xs text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              30-day price history chart from Agmarknet.
+              {t.priceHistoryChartFromAgmarknet}
             </p>
           </div>
           <button
@@ -297,7 +299,7 @@ export default function Home() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-          Maharashtra only · Agmarknet data (today + last 3 days)
+          {t.maharashtraOnlyAgmarknet}
         </p>
       </div>
     </div>
