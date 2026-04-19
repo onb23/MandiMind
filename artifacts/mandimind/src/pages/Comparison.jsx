@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { getCropNames } from "../data/mockPrices";
-import { fetchCompare } from "../utils/api";
+import { fetchAvailableMandis } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
 
 export default function Comparison() {
@@ -22,7 +22,7 @@ export default function Comparison() {
     async function load() {
       setLoading(true);
       setError(null);
-      const result = await fetchCompare(selectedCrop, "Maharashtra", 7);
+      const result = await fetchAvailableMandis(selectedCrop, "Maharashtra");
       if (!cancelled) {
         if (result.source === "error") {
           setError("Data unavailable — try again");
