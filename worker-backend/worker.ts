@@ -78,6 +78,7 @@ async function fetchDataGov(
   market: string,
   state: string,
   limit = 100,
+  arrivalDate?: string,
 ): Promise<PriceRecord[]> {
   if (!apiKey) throw new Error("DATA_GOV_API_KEY not configured");
 
@@ -89,6 +90,7 @@ async function fetchDataGov(
   });
   if (market) params.set("filters[market]", market);
   if (state)  params.set("filters[state]", state);
+  if (arrivalDate) params.set("filters[arrival_date]", arrivalDate);
 
   const url = `${DATA_GOV_BASE}/${RESOURCE_ID}?${params.toString()}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
@@ -255,13 +257,37 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       return json({ mandis: [], lastUpdated: null, source: "live" });
     }
 
+    const latestModeWindowDays = 3;
+    const todayTs = new Date();
+    const recentDateKeys = Array.from({ length: latestModeWindowDays + 1 }, (_, offset) => {
+      const date = new Date(todayTs);
+      date.setDate(todayTs.getDate() - offset);
+      const dd = String(date.getDate()).padStart(2, "0");
+      const mm = String(date.getMonth() + 1).padStart(2, "0");
+      const yyyy = String(date.getFullYear());
+      return `${dd}/${mm}/${yyyy}`;
+    });
+
+    const recentDateBatches = await Promise.all(
+      recentDateKeys.map((dateKey) => fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500, dateKey))
+    );
+    const mergedRecentRecords = recentDateBatches.flat();
+    const mergedRecentKeys = new Set(
+      mergedRecentRecords.map((r) => `${r.market}|${r.date}|${r.modal_price}`)
+    );
+    const recentWindowRecords = [
+      ...mergedRecentRecords,
+      ...records.filter((r) => recentDateKeys.includes(r.date) && !mergedRecentKeys.has(`${r.market}|${r.date}|${r.modal_price}`)),
+    ];
+    const candidateRecords = recentWindowRecords.length > 0 ? recentWindowRecords : records;
+
     const byMandi = new Map<string, PriceRecord[]>();
-    for (const r of records) {
+    for (const r of candidateRecords) {
       if (!byMandi.has(r.market)) byMandi.set(r.market, []);
       byMandi.get(r.market)!.push(r);
     }
 
-    const allDates  = records.map(r => r.date);
+    const allDates  = candidateRecords.map(r => r.date);
     const latestDate = allDates.sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0];
 
     const mandiSummaries = Array.from(byMandi.entries())
