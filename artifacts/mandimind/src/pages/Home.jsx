@@ -135,7 +135,7 @@ export default function Home() {
             </p>
           </div>
           <button
-            onClick={() => navigate("/forecast")}
+            onClick={() => navigate("/trade")}
             className="ml-auto flex-shrink-0 bg-[#004c22] text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
