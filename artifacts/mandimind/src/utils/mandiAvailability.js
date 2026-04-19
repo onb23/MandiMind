@@ -1,4 +1,5 @@
 import { fetchCompare, fetchCropUniverse, fetchPrices } from "./api";
+import { getCropNames } from "../data/mockPrices";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_STATE = "Maharashtra";
@@ -17,8 +18,12 @@ export const PRICE_MODE = {
 export function parseArrivalDate(dateStr) {
   if (!dateStr || typeof dateStr !== "string") return null;
   const [dd, mm, yyyy] = dateStr.split("/");
-  if (!dd || !mm || !yyyy) return null;
-  const parsed = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+  let parsed = null;
+  if (dd && mm && yyyy) {
+    parsed = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+  } else {
+    parsed = new Date(dateStr);
+  }
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -287,10 +292,48 @@ export function splitMandisByFreshness(mandis = []) {
 export async function fetchAvailableCrops(state = DEFAULT_STATE) {
   const cropWindowDays = 15;
   const result = await fetchCropUniverse(state, cropWindowDays);
+  const payloadCrops = Array.isArray(result?.crops)
+    ? result.crops
+    : Array.isArray(result?.data?.crops)
+      ? result.data.crops
+      : [];
 
-  if (result?.source === "error") {
-    return [];
+  const normalized = payloadCrops
+    .map((crop) => {
+      if (typeof crop === "string" && crop.trim()) {
+        return { id: crop.trim(), name: crop.trim(), commodity: crop.trim(), recordCount: 0, latestDate: null };
+      }
+      if (!crop || typeof crop !== "object") return null;
+      const id = typeof crop.id === "string" ? crop.id.trim() : "";
+      const commodity = typeof crop.commodity === "string" ? crop.commodity.trim() : id;
+      const name = typeof crop.name === "string" ? crop.name.trim() : commodity || id;
+      if (!id && !commodity && !name) return null;
+      return {
+        id: id || commodity || name,
+        name: name || commodity || id,
+        commodity: commodity || id || name,
+        recordCount: Number.isFinite(crop.recordCount) ? crop.recordCount : 0,
+        latestDate: typeof crop.latestDate === "string" ? crop.latestDate : null,
+      };
+    })
+    .filter(Boolean);
+
+  if (normalized.length > 0) {
+    return normalized;
   }
 
-  return Array.isArray(result?.crops) ? result.crops : [];
+  const localFallback = getCropNames().map((crop) => ({
+    id: crop.id,
+    name: crop.name,
+    commodity: crop.name.split(" / ")[0],
+    recordCount: 0,
+    latestDate: null,
+  }));
+
+  if (result?.source === "error") {
+    console.warn("[MandiMind] crop universe unavailable, using minimal active crop fallback");
+  } else {
+    console.warn("[MandiMind] crop universe empty, using minimal active crop fallback");
+  }
+  return localFallback;
 }
