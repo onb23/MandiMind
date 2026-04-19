@@ -55,15 +55,23 @@ export default function Comparison() {
     return () => { cancelled = true; };
   }, [selectedCrop]);
 
-  const mandis      = compareData?.mandis || [];
-  const liveTodayMandis = mandis
-    .filter((item) => item.bucket === "live_today")
-    .sort((a, b) => (b.todayPrice ?? 0) - (a.todayPrice ?? 0));
-  const latestAvailableMandis = mandis
-    .filter((item) => item.bucket === "latest_available")
-    .sort((a, b) => (b.todayPrice ?? 0) - (a.todayPrice ?? 0));
-  const bestMandi = liveTodayMandis[0] || null;
-  const lastUpdated = compareData?.lastUpdated || liveTodayMandis[0]?.lastUpdated || latestAvailableMandis[0]?.lastUpdated;
+  const mandis = compareData?.mandis || [];
+  const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
+  const sortedMandis = [...mandis].sort((a, b) => {
+    const byPrice = scorePrice(b.todayPrice) - scorePrice(a.todayPrice);
+    if (byPrice !== 0) return byPrice;
+    const freshnessRank = (bucket) => (bucket === "live_today" ? 0 : 1);
+    const byFreshness = freshnessRank(a.bucket) - freshnessRank(b.bucket);
+    if (byFreshness !== 0) return byFreshness;
+    return a.mandi.localeCompare(b.mandi);
+  });
+  const bestMandi = sortedMandis[0] || null;
+  const bestLabel = bestMandi
+    ? bestMandi.bucket === "live_today"
+      ? "Best price today"
+      : "Best latest price"
+    : "";
+  const lastUpdated = compareData?.lastUpdated || bestMandi?.lastUpdated;
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -126,61 +134,38 @@ export default function Comparison() {
             {bestMandi && (
               <div className="bg-[#004c22] rounded-xl p-3 mb-4 flex items-center justify-between">
                 <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  {t.bestMandi}:
+                  {bestLabel}:
                 </span>
                 <span className="text-[#feb234] font-bold text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  {bestMandi.mandi} — ₹{bestMandi.todayPrice.toLocaleString("en-IN")}
+                  {bestMandi.mandi} — {bestMandi.todayPrice > 0 ? `₹${bestMandi.todayPrice.toLocaleString("en-IN")}` : "—"}
                 </span>
               </div>
             )}
 
-            {liveTodayMandis.length > 0 && (
-              <div className="mb-5">
-                <h2 className="text-base font-bold text-[#004c22] mb-2" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  Live Today
-                </h2>
-                <div className="space-y-3">
-                  {liveTodayMandis.map((item, idx) => (
-                    <MandiCard
-                      key={`live-${item.mandi}`}
-                      mandi={item.mandi}
-                      todayPrice={item.todayPrice}
-                      avgPrice={item.avgPrice}
-                      lastUpdated={item.lastUpdated}
-                      stale={false}
-                      isBest={idx === 0}
-                      rank={idx + 1}
-                    />
-                  ))}
-                </div>
+            <div className="mb-2">
+              <h2 className="text-base font-bold text-[#004c22] mb-2" style={{ fontFamily: "Manrope, sans-serif" }}>
+                Best Price First
+              </h2>
+              <div className="space-y-3">
+                {sortedMandis.map((item, idx) => (
+                  <MandiCard
+                    key={`${item.bucket}-${item.mandi}`}
+                    mandi={item.mandi}
+                    todayPrice={item.todayPrice}
+                    avgPrice={item.avgPrice}
+                    lastUpdated={item.lastUpdated}
+                    stale={item.bucket !== "live_today"}
+                    freshnessDays={item.freshnessDays}
+                    isBest={idx === 0}
+                    rank={idx + 1}
+                    bestLabel={idx === 0 ? bestLabel : ""}
+                  />
+                ))}
               </div>
-            )}
-
-            {latestAvailableMandis.length > 0 && (
-              <div className="mb-2">
-                <h2 className="text-base font-bold text-[#775d00] mb-2" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  Latest Available (Last 3 Days)
-                </h2>
-                <div className="space-y-3">
-                  {latestAvailableMandis.map((item, idx) => (
-                    <MandiCard
-                      key={`latest-${item.mandi}`}
-                      mandi={item.mandi}
-                      todayPrice={item.todayPrice}
-                      avgPrice={item.avgPrice}
-                      lastUpdated={item.lastUpdated}
-                      stale
-                      freshnessDays={item.freshnessDays}
-                      isBest={false}
-                      rank={idx + 1}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+            </div>
 
             <p className="text-center text-xs text-gray-400 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {liveTodayMandis.length + latestAvailableMandis.length} mandis · Maharashtra · Source: Agmarknet
+              {sortedMandis.length} mandis · Maharashtra · Source: Agmarknet
             </p>
           </>
         )}

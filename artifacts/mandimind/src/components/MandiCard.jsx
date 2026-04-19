@@ -1,6 +1,17 @@
 import { useLanguage } from "../context/LanguageContext";
 
-export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, stale, freshnessDays, isBest, rank, freshnessText }) {
+export default function MandiCard({
+  mandi,
+  todayPrice,
+  avgPrice,
+  lastUpdated,
+  stale,
+  freshnessDays,
+  isBest,
+  rank,
+  freshnessText,
+  bestLabel,
+}) {
   const { t } = useLanguage();
 
   const displayPrice = todayPrice > 0 ? `₹${todayPrice.toLocaleString("en-IN")}` : "—";
@@ -36,7 +47,7 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
         <div className="flex flex-col items-end gap-1">
           {isBest && (
             <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-medium">
-              {t.bestMandi}
+              {bestLabel || t.bestMandi}
             </span>
           )}
           {freshnessText && (
