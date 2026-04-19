@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
+import { useLanguage } from "../context/LanguageContext";
 
 const COUNTRIES = [
-  { id: "UAE", name: "UAE", multiplier: 1.8, cost: 6 },
-  { id: "Bangladesh", name: "Bangladesh", multiplier: 1.4, cost: 4 },
-  { id: "Sri Lanka", name: "Sri Lanka", multiplier: 1.3, cost: 5 },
-  { id: "Saudi Arabia", name: "Saudi Arabia", multiplier: 1.7, cost: 5.5 },
-  { id: "Oman", name: "Oman", multiplier: 1.55, cost: 5.2 },
-  { id: "Malaysia", name: "Malaysia", multiplier: 1.65, cost: 5.8 },
-  { id: "Nepal", name: "Nepal", multiplier: 1.35, cost: 3.8 },
-  { id: "Iraq", name: "Iraq", multiplier: 1.6, cost: 5.6 },
-  { id: "UK", name: "UK", multiplier: 2, cost: 8 },
+  { id: "UAE", name: "UAE", multiplier: 1.8, cost: 6, transitDays: 7, realizationFactor: 0.9 },
+  { id: "Bangladesh", name: "Bangladesh", multiplier: 1.4, cost: 4, transitDays: 4, realizationFactor: 0.93 },
+  { id: "Sri Lanka", name: "Sri Lanka", multiplier: 1.3, cost: 5, transitDays: 6, realizationFactor: 0.9 },
+  { id: "Saudi Arabia", name: "Saudi Arabia", multiplier: 1.7, cost: 5.5, transitDays: 8, realizationFactor: 0.89 },
+  { id: "Oman", name: "Oman", multiplier: 1.55, cost: 5.2, transitDays: 8, realizationFactor: 0.9 },
+  { id: "Malaysia", name: "Malaysia", multiplier: 1.65, cost: 5.8, transitDays: 10, realizationFactor: 0.88 },
+  { id: "Nepal", name: "Nepal", multiplier: 1.35, cost: 3.8, transitDays: 3, realizationFactor: 0.94 },
+  { id: "Iraq", name: "Iraq", multiplier: 1.6, cost: 5.6, transitDays: 9, realizationFactor: 0.88 },
+  { id: "UK", name: "UK", multiplier: 2, cost: 8, transitDays: 14, realizationFactor: 0.84 },
 ];
 
 const DEFAULT_QUANTITY = 1000;
@@ -21,15 +22,15 @@ function parsePrice(value) {
   return Number.isFinite(num) ? num : null;
 }
 
-function getProfitTone(profitPerKg) {
-  if (profitPerKg <= 0) {
+function getDecisionTone(decision) {
+  if (decision === "NOT_PROFITABLE") {
     return {
       card: "bg-red-100 text-red-900",
       label: "text-red-700",
     };
   }
 
-  if (profitPerKg <= 2) {
+  if (decision === "MARGINAL") {
     return {
       card: "bg-yellow-100 text-yellow-900",
       label: "text-yellow-700",
@@ -42,65 +43,87 @@ function getProfitTone(profitPerKg) {
   };
 }
 
-function getRecommendationDisplay(recommendation) {
-  if (recommendation === "EXPORT") return "🚀 EXPORT";
-  if (recommendation === "SELL LOCAL") return "📦 SELL LOCAL";
-  return "⚠️ WAIT";
-}
-
-function getConfidenceDescription(level) {
-  if (level === "HIGH") return "Strong profit margin with favorable conditions";
-  if (level === "MEDIUM") return "Moderate profit with stable conditions";
-  return "Low margin or high cost uncertainty";
+function formatRange(min, max) {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return "—";
+  return `₹${Math.round(min).toLocaleString("en-IN")}–₹${Math.round(max).toLocaleString("en-IN")}`;
 }
 
 function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry, quantity }) {
   if (!canCalculate) {
     return {
-      exportPrice: 0,
-      profitPerKg: 0,
-      totalProfit: 0,
-      profitPercent: 0,
-      recommendation: "WAIT",
+      estimatedSellPrice: 0,
+      indicativeSellPricePerKg: 0,
+      breakEvenSellingPricePerKg: 0,
+      marginRangePerKg: { min: 0, max: 0 },
+      totalMarginRange: { min: 0, max: 0 },
+      decision: "NOT_PROFITABLE",
+      riskLevel: "HIGH",
       confidenceLevel: "LOW",
-      reasonMessage: "Export not profitable due to high costs",
+      delayRiskNote: "",
+      keyReasons: [],
     };
   }
 
-  const exportPrice = mandiPricePerKg * selectedCountry.multiplier;
-  const profitPerKg = exportPrice - mandiPricePerKg - selectedCountry.cost;
-  const totalProfit = profitPerKg * quantity;
-  const profitPercent = mandiPricePerKg > 0 ? (profitPerKg / mandiPricePerKg) * 100 : 0;
+  const estimatedSellPrice = mandiPricePerKg * selectedCountry.multiplier;
+  const realizedSellPrice = estimatedSellPrice * selectedCountry.realizationFactor;
+  const breakEvenSellingPricePerKg = mandiPricePerKg + selectedCountry.cost;
+  const baseMarginPerKg = realizedSellPrice - breakEvenSellingPricePerKg;
 
-  let recommendation = "WAIT";
-  if (profitPerKg > 4) recommendation = "EXPORT";
-  else if (profitPerKg > 1) recommendation = "SELL LOCAL";
+  const uncertaintyBuffer = Math.max(
+    1.2,
+    estimatedSellPrice * (0.05 + (selectedCountry.transitDays > 9 ? 0.02 : 0)),
+  );
+
+  const marginRangePerKg = {
+    min: baseMarginPerKg - uncertaintyBuffer,
+    max: baseMarginPerKg + uncertaintyBuffer,
+  };
+
+  const totalMarginRange = {
+    min: marginRangePerKg.min * quantity,
+    max: marginRangePerKg.max * quantity,
+  };
+
+  let decision = "NOT_PROFITABLE";
+  if (marginRangePerKg.min > 2) decision = "PROFITABLE";
+  else if (marginRangePerKg.max > 0) decision = "MARGINAL";
+
+  let riskLevel = "HIGH";
+  if (selectedCountry.transitDays <= 5 && marginRangePerKg.min > 2) riskLevel = "LOW";
+  else if (selectedCountry.transitDays <= 9 && marginRangePerKg.max > 1) riskLevel = "MEDIUM";
 
   let confidenceLevel = "LOW";
-  if (profitPerKg > 5) confidenceLevel = "HIGH";
-  else if (profitPerKg > 2) confidenceLevel = "MEDIUM";
+  if (marginRangePerKg.min > 2 && selectedCountry.transitDays <= 8) confidenceLevel = "HIGH";
+  else if (marginRangePerKg.max > 0) confidenceLevel = "MEDIUM";
 
-  let reasonMessage = "Export not profitable due to high costs";
-  if (profitPerKg > 0 && profitPerKg <= 2) {
-    reasonMessage = "Profit margin too low, better to wait";
-  } else if (profitPerKg > 2 && profitPerKg <= 5) {
-    reasonMessage = "Moderate profit opportunity, consider local sale";
-  } else if (profitPerKg > 5) {
-    reasonMessage = "Strong export opportunity";
-  }
+  const delayRiskNote = selectedCountry.transitDays >= 10
+    ? "High delay risk: longer transit can reduce realized selling price."
+    : selectedCountry.transitDays >= 6
+      ? "Moderate delay risk: transit disruptions can impact margin."
+      : "Low delay risk: shorter route usually protects realization.";
+
+  const keyReasons = [
+    `Realization factor ${Math.round(selectedCountry.realizationFactor * 100)}% applied on estimated export price.`,
+    `Transit estimate: ${selectedCountry.transitDays} days.`,
+    `Break-even selling price: ₹${breakEvenSellingPricePerKg.toFixed(2)}/kg.`,
+  ];
 
   return {
-    exportPrice,
-    profitPerKg,
-    totalProfit,
-    profitPercent,
-    recommendation,
+    estimatedSellPrice,
+    indicativeSellPricePerKg: realizedSellPrice,
+    breakEvenSellingPricePerKg,
+    marginRangePerKg,
+    totalMarginRange,
+    decision,
+    riskLevel,
     confidenceLevel,
-    reasonMessage,
+    delayRiskNote,
+    keyReasons,
   };
 }
 
 export default function Trade() {
+  const { t } = useLanguage();
   const [cropList, setCropList] = useState([]);
   const [selectedCrop, setSelectedCrop] = useState("");
   const [cropLoading, setCropLoading] = useState(true);
@@ -183,6 +206,7 @@ export default function Trade() {
   const baseMandiPricePerQuintal = mandis[0]?.todayPrice ?? null;
   const baseMandiPricePerKg = baseMandiPricePerQuintal !== null ? baseMandiPricePerQuintal / 100 : null;
   const safeQuantity = Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? Number(quantity) : 0;
+  const dataCompleteness = mandis.length >= 3 ? "HIGH" : mandis.length >= 2 ? "MEDIUM" : "LOW";
   const canCalculate = baseMandiPricePerKg !== null && safeQuantity > 0 && !loading && !error;
 
   const calculations = useMemo(() => {
@@ -194,26 +218,13 @@ export default function Trade() {
     });
   }, [canCalculate, baseMandiPricePerKg, selectedCountry, safeQuantity]);
 
-  const priceSimulation = useMemo(() => {
-    return [1, 2].map((increasePerKg) => {
-      const mandiPricePerKg = (baseMandiPricePerKg ?? 0) + increasePerKg;
-      const simulation = calculateTradeMetrics({
-        canCalculate,
-        mandiPricePerKg,
-        selectedCountry,
-        quantity: safeQuantity,
-      });
+  const decisionTone = getDecisionTone(calculations.decision);
+  const decisionLabel = calculations.decision === "PROFITABLE"
+    ? t.tradeDecisionProfitable
+    : calculations.decision === "MARGINAL"
+      ? t.tradeDecisionMarginal
+      : t.tradeDecisionNotProfitable;
 
-      return {
-        increasePerKg,
-        ...simulation,
-      };
-    });
-  }, [baseMandiPricePerKg, canCalculate, selectedCountry, safeQuantity]);
-
-  const profitTone = getProfitTone(calculations.profitPerKg);
-  const recommendationText = getRecommendationDisplay(calculations.recommendation);
-  const confidenceDescription = getConfidenceDescription(calculations.confidenceLevel);
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
 
   async function handleShareTradeResult() {
@@ -221,8 +232,8 @@ export default function Trade() {
 
 Crop: ${selectedCropName}
 Country: ${selectedCountry.name}
-Profit: ₹${Math.round(calculations.totalProfit).toLocaleString("en-IN")}
-Recommendation: ${calculations.recommendation}
+Estimated margin range: ${formatRange(calculations.totalMarginRange.min, calculations.totalMarginRange.max)}
+Decision: ${decisionLabel}
 Confidence: ${calculations.confidenceLevel}
 
 Check your trade:
@@ -323,36 +334,30 @@ https://mandimind.pages.dev/trade`;
 
       <div className="px-4 space-y-4">
         <section className="bg-[#004c22] rounded-xl p-4 text-white">
-          <p className="text-xs text-green-100">Total Profit</p>
-          <p className="text-3xl font-extrabold mt-1">₹{Math.round(calculations.totalProfit).toLocaleString("en-IN")}</p>
-          <div className="grid grid-cols-3 gap-2 mt-4 text-center">
-            <div className={`${profitTone.card} rounded-lg p-2`}>
-              <p className={`text-[10px] ${profitTone.label}`}>Profit/kg</p>
-              <p className="text-sm font-bold">₹{calculations.profitPerKg.toFixed(2)}</p>
+          <p className="text-xs text-green-100">{t.tradeDecision}</p>
+          <p className="text-3xl font-extrabold mt-1">{decisionLabel}</p>
+          <div className="grid grid-cols-2 gap-2 mt-4 text-center">
+            <div className={`${decisionTone.card} rounded-lg p-2`}>
+              <p className={`text-[10px] ${decisionTone.label}`}>{t.tradeEstimatedMarginRange}</p>
+              <p className="text-xs font-bold">₹{calculations.marginRangePerKg.min.toFixed(1)} to ₹{calculations.marginRangePerKg.max.toFixed(1)}/kg</p>
             </div>
-            <div className={`${profitTone.card} rounded-lg p-2`}>
-              <p className={`text-[10px] ${profitTone.label}`}>Profit %</p>
-              <p className="text-sm font-bold">{calculations.profitPercent.toFixed(1)}%</p>
+            <div className={`${decisionTone.card} rounded-lg p-2`}>
+              <p className={`text-[10px] ${decisionTone.label}`}>{t.tradeRiskLevel}</p>
+              <p className="text-sm font-bold">{calculations.riskLevel}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-2 text-center">
+            <div className="bg-white/10 rounded-lg p-2">
+              <p className="text-[10px] text-green-100">{t.confidence}</p>
+              <p className="text-lg font-extrabold tracking-wide">{calculations.confidenceLevel}</p>
             </div>
             <div className="bg-white/10 rounded-lg p-2">
-              <p className="text-[10px] text-green-100">Recommendation</p>
-              <p className="text-lg sm:text-xl font-extrabold tracking-wide">{recommendationText}</p>
+              <p className="text-[10px] text-green-100">{t.tradeDataCompleteness}</p>
+              <p className="text-lg font-extrabold tracking-wide">{dataCompleteness}</p>
             </div>
           </div>
-          <p className="text-[11px] text-green-100 mt-3 leading-relaxed">
-            Estimates based on mandi prices and heuristic export models. Actual profits may vary.
-          </p>
-          <div className="mt-3 space-y-1">
-            <p className="text-xs text-green-100">
-              Confidence:{" "}
-              <span className="font-semibold text-white">
-                {calculations.confidenceLevel} ({confidenceDescription})
-              </span>
-            </p>
-          </div>
-          <p className="text-[11px] text-green-100/90 mt-3">
-            ⚠️ Most traders lose money due to wrong timing. Check again tomorrow.
-          </p>
+          <p className="text-[11px] text-green-100 mt-3 leading-relaxed">{t.tradeApproximationNote}</p>
+          <p className="text-[11px] text-green-100/90 mt-2">{calculations.delayRiskNote}</p>
           {!canCalculate && <p className="text-xs text-green-100 mt-3">Calculation disabled until mandi data is available.</p>}
         </section>
 
@@ -376,12 +381,14 @@ https://mandimind.pages.dev/trade`;
         </section>
 
         <section className="bg-white border border-gray-200 rounded-xl p-4">
-          <h2 className="text-base font-bold text-[#1e1c10] mb-3">Trade Breakdown</h2>
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">{t.tradeBreakdown}</h2>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Buy (Mandi Price)</span><span className="font-semibold">₹{baseMandiPricePerQuintal?.toFixed(2) ?? "0.00"}/quintal (₹{baseMandiPricePerKg?.toFixed(2) ?? "0.00"}/kg)</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Sell (Export Price)</span><span className="font-semibold">₹{calculations.exportPrice.toFixed(2)}/kg</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Cost</span><span className="font-semibold">₹{selectedCountry.cost.toFixed(2)}/kg</span></div>
-            <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">Profit / kg</span><span className="font-bold text-[#004c22]">₹{calculations.profitPerKg.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeBuyPrice}</span><span className="font-semibold">₹{baseMandiPricePerQuintal?.toFixed(2) ?? "0.00"}/quintal (₹{baseMandiPricePerKg?.toFixed(2) ?? "0.00"}/kg)</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeSellEstimate}</span><span className="font-semibold">₹{calculations.estimatedSellPrice.toFixed(2)}/kg</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeRealizationApplied}</span><span className="font-semibold">{Math.round(selectedCountry.realizationFactor * 100)}%</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeTransitTime}</span><span className="font-semibold">{selectedCountry.transitDays} {t.tradeDays}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeCost}</span><span className="font-semibold">₹{selectedCountry.cost.toFixed(2)}/kg</span></div>
+            <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">{t.tradeBreakEvenPrice}</span><span className="font-bold text-[#004c22]">₹{calculations.breakEvenSellingPricePerKg.toFixed(2)}/kg</span></div>
           </div>
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-1 text-[11px] text-gray-500">
             <p>📡 Data Source: Agmarknet (Govt. of India)</p>
@@ -390,17 +397,13 @@ https://mandimind.pages.dev/trade`;
         </section>
 
         <section className="bg-white border border-gray-200 rounded-xl p-4">
-          <h2 className="text-base font-bold text-[#1e1c10] mb-3">📊 Price Change Simulation</h2>
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">{t.tradeKeyReasons}</h2>
           <div className="space-y-3 text-sm">
-            {priceSimulation.map((scenario) => (
-              <div key={scenario.increasePerKg} className="bg-[#f8fafc] rounded-lg px-3 py-2">
-                <p className="font-medium text-[#1e1c10]">If mandi price increases by ₹{scenario.increasePerKg}/kg:</p>
-                <p className="text-gray-700 mt-1">→ Profit: ₹{Math.round(scenario.totalProfit).toLocaleString("en-IN")}</p>
-                <p className="text-gray-700">→ Recommendation: {getRecommendationDisplay(scenario.recommendation)}</p>
-              </div>
+            {calculations.keyReasons.map((reason) => (
+              <p key={reason} className="bg-[#f8fafc] rounded-lg px-3 py-2 text-gray-700">• {reason}</p>
             ))}
           </div>
-          {!canCalculate && <p className="text-xs text-gray-500 mt-3">Simulation available once mandi data is loaded.</p>}
+          {!canCalculate && <p className="text-xs text-gray-500 mt-3">Reasons available once mandi data is loaded.</p>}
         </section>
 
         <section className="space-y-2">
