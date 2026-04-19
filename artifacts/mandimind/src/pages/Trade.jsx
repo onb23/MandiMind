@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLanguage } from "../context/LanguageContext";
+import tradeCountryProfiles from "../data/tradeCountryProfiles";
 import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
 
 const COUNTRIES = [
-  { id: "UAE", name: "UAE", multiplier: 1.8, cost: 6 },
-  { id: "Bangladesh", name: "Bangladesh", multiplier: 1.4, cost: 4 },
-  { id: "Sri Lanka", name: "Sri Lanka", multiplier: 1.3, cost: 5 },
-  { id: "Saudi Arabia", name: "Saudi Arabia", multiplier: 1.7, cost: 5.5 },
-  { id: "Oman", name: "Oman", multiplier: 1.55, cost: 5.2 },
-  { id: "Malaysia", name: "Malaysia", multiplier: 1.65, cost: 5.8 },
-  { id: "Nepal", name: "Nepal", multiplier: 1.35, cost: 3.8 },
-  { id: "Iraq", name: "Iraq", multiplier: 1.6, cost: 5.6 },
-  { id: "UK", name: "UK", multiplier: 2, cost: 8 },
+  { id: "UAE", name: "UAE" },
+  { id: "Bangladesh", name: "Bangladesh" },
+  { id: "Sri Lanka", name: "Sri Lanka" },
+  { id: "Saudi Arabia", name: "Saudi Arabia" },
+  { id: "Oman", name: "Oman" },
+  { id: "Malaysia", name: "Malaysia" },
+  { id: "Nepal", name: "Nepal" },
+  { id: "Iraq", name: "Iraq" },
+  { id: "UK", name: "UK" },
 ];
 
 const DEFAULT_QUANTITY = 1000;
@@ -21,86 +23,130 @@ function parsePrice(value) {
   return Number.isFinite(num) ? num : null;
 }
 
-function getProfitTone(profitPerKg) {
-  if (profitPerKg <= 0) {
+function classifyResult(netMarginPercent) {
+  if (netMarginPercent >= 12) return "PROFITABLE";
+  if (netMarginPercent >= 4) return "MARGINAL";
+  return "NOT_PROFITABLE";
+}
+
+function getResultTone(classification) {
+  if (classification === "PROFITABLE") {
     return {
-      card: "bg-red-100 text-red-900",
-      label: "text-red-700",
+      card: "bg-green-100 text-green-900",
+      label: "text-green-700",
+      badge: "bg-green-600 text-white",
     };
   }
-
-  if (profitPerKg <= 2) {
+  if (classification === "MARGINAL") {
     return {
       card: "bg-yellow-100 text-yellow-900",
       label: "text-yellow-700",
+      badge: "bg-yellow-600 text-white",
     };
   }
-
   return {
-    card: "bg-green-100 text-green-900",
-    label: "text-green-700",
+    card: "bg-red-100 text-red-900",
+    label: "text-red-700",
+    badge: "bg-red-600 text-white",
   };
 }
 
-function getRecommendationDisplay(recommendation) {
-  if (recommendation === "EXPORT") return "🚀 EXPORT";
-  if (recommendation === "SELL LOCAL") return "📦 SELL LOCAL";
-  return "⚠️ WAIT";
-}
-
-function getConfidenceDescription(level) {
-  if (level === "HIGH") return "Strong profit margin with favorable conditions";
-  if (level === "MEDIUM") return "Moderate profit with stable conditions";
-  return "Low margin or high cost uncertainty";
-}
-
-function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry, quantity }) {
+function calculateTradeMetrics({ canCalculate, sourcePurchasePrice, quantity, countryProfile }) {
   if (!canCalculate) {
     return {
-      exportPrice: 0,
-      profitPerKg: 0,
-      totalProfit: 0,
-      profitPercent: 0,
-      recommendation: "WAIT",
-      confidenceLevel: "LOW",
-      reasonMessage: "Export not profitable due to high costs",
+      destinationSellingPrice: 0,
+      adjustedSellingPrice: 0,
+      effectiveRevenue: 0,
+      totalCost: 0,
+      netProfitPerKg: 0,
+      totalNetProfit: 0,
+      netMarginPercent: 0,
+      classification: "NOT_PROFITABLE",
+      defaultsUsed: true,
+      components: {
+        transportCost: 0,
+        packagingCost: 0,
+        handlingCost: 0,
+        commissionOrFees: 0,
+        storageOrColdChainCost: 0,
+        wastagePercent: 0,
+        qualityAdjustmentPercent: 0,
+        riskBufferPercent: 0,
+      },
+      explanationFlags: {
+        costBurdenHigh: false,
+        wastageAndQualityHigh: false,
+        lowSpread: true,
+      },
     };
   }
 
-  const exportPrice = mandiPricePerKg * selectedCountry.multiplier;
-  const profitPerKg = exportPrice - mandiPricePerKg - selectedCountry.cost;
-  const totalProfit = profitPerKg * quantity;
-  const profitPercent = mandiPricePerKg > 0 ? (profitPerKg / mandiPricePerKg) * 100 : 0;
+  const destinationSellingPrice = sourcePurchasePrice * countryProfile.destinationPriceMultiplier;
+  const transportCost = countryProfile.transportCostDefault;
+  const packagingCost = countryProfile.packagingCostDefault;
+  const handlingCost = countryProfile.handlingCostDefault;
+  const commissionOrFees = countryProfile.commissionOrFeesDefault;
+  const storageOrColdChainCost = countryProfile.storageOrColdChainCostDefault;
+  const wastagePercent = countryProfile.wastagePercentDefault;
+  const qualityAdjustmentPercent = countryProfile.qualityAdjustmentPercentDefault;
+  const riskBufferPercent = countryProfile.riskBufferPercentDefault;
 
-  let recommendation = "WAIT";
-  if (profitPerKg > 4) recommendation = "EXPORT";
-  else if (profitPerKg > 1) recommendation = "SELL LOCAL";
+  const adjustedSellingPrice = destinationSellingPrice * (1 - qualityAdjustmentPercent / 100);
+  const effectiveRevenue = adjustedSellingPrice * (1 - wastagePercent / 100);
+  const baseTotalCost =
+    sourcePurchasePrice +
+    transportCost +
+    packagingCost +
+    handlingCost +
+    commissionOrFees +
+    storageOrColdChainCost;
+  const riskBufferCost = baseTotalCost * (riskBufferPercent / 100);
+  const totalCost = baseTotalCost + riskBufferCost;
+  const netProfitPerKg = effectiveRevenue - totalCost;
+  const totalNetProfit = netProfitPerKg * quantity;
+  const netMarginPercent = totalCost > 0 ? (netProfitPerKg / totalCost) * 100 : 0;
 
-  let confidenceLevel = "LOW";
-  if (profitPerKg > 5) confidenceLevel = "HIGH";
-  else if (profitPerKg > 2) confidenceLevel = "MEDIUM";
-
-  let reasonMessage = "Export not profitable due to high costs";
-  if (profitPerKg > 0 && profitPerKg <= 2) {
-    reasonMessage = "Profit margin too low, better to wait";
-  } else if (profitPerKg > 2 && profitPerKg <= 5) {
-    reasonMessage = "Moderate profit opportunity, consider local sale";
-  } else if (profitPerKg > 5) {
-    reasonMessage = "Strong export opportunity";
-  }
+  const extraCosts = transportCost + packagingCost + handlingCost + commissionOrFees + storageOrColdChainCost + riskBufferCost;
+  const spread = destinationSellingPrice - sourcePurchasePrice;
 
   return {
-    exportPrice,
-    profitPerKg,
-    totalProfit,
-    profitPercent,
-    recommendation,
-    confidenceLevel,
-    reasonMessage,
+    destinationSellingPrice,
+    adjustedSellingPrice,
+    effectiveRevenue,
+    totalCost,
+    netProfitPerKg,
+    totalNetProfit,
+    netMarginPercent,
+    classification: classifyResult(netMarginPercent),
+    defaultsUsed: true,
+    components: {
+      transportCost,
+      packagingCost,
+      handlingCost,
+      commissionOrFees,
+      storageOrColdChainCost,
+      wastagePercent,
+      qualityAdjustmentPercent,
+      riskBufferPercent,
+      riskBufferCost,
+    },
+    explanationFlags: {
+      costBurdenHigh: totalCost > 0 ? extraCosts / totalCost >= 0.28 : false,
+      wastageAndQualityHigh: wastagePercent + qualityAdjustmentPercent >= 10,
+      lowSpread: spread <= sourcePurchasePrice * 0.2,
+    },
   };
+}
+
+function getRecommendationDisplay(classification, t) {
+  if (classification === "PROFITABLE") return `✅ ${t.tradeResultProfitable}`;
+  if (classification === "MARGINAL") return `⚠️ ${t.tradeResultMarginal}`;
+  return `⛔ ${t.tradeResultNotProfitable}`;
 }
 
 export default function Trade() {
+  const { t } = useLanguage();
+
   const [cropList, setCropList] = useState([]);
   const [selectedCrop, setSelectedCrop] = useState("");
   const [cropLoading, setCropLoading] = useState(true);
@@ -122,7 +168,7 @@ export default function Trade() {
       if (cancelled) return;
       setCropList(crops);
       setSelectedCrop((prev) => {
-        if (prev && crops.some((crop) => crop.id === prev)) return prev;
+        if (prev && crops.some((cropItem) => cropItem.id === prev)) return prev;
         return crops[0]?.id || "";
       });
       setCropLoading(false);
@@ -151,7 +197,7 @@ export default function Trade() {
 
       if (result?.source === "error" || !Array.isArray(result?.mandis)) {
         setMandis([]);
-        setError("Data unavailable");
+        setError(t.dataUnavailable);
         setLoading(false);
         return;
       }
@@ -166,7 +212,7 @@ export default function Trade() {
         .slice(0, 3);
 
       if (sortedMandis.length === 0) {
-        setError("Data unavailable");
+        setError(t.dataUnavailable);
       }
 
       setMandis(sortedMandis);
@@ -177,30 +223,31 @@ export default function Trade() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCrop]);
+  }, [selectedCrop, t.dataUnavailable]);
 
   const selectedCountry = COUNTRIES.find((c) => c.id === country) || COUNTRIES[0];
+  const countryProfile = tradeCountryProfiles[selectedCountry.id] || tradeCountryProfiles.UAE;
   const baseMandiPricePerQuintal = mandis[0]?.todayPrice ?? null;
-  const baseMandiPricePerKg = baseMandiPricePerQuintal !== null ? baseMandiPricePerQuintal / 100 : null;
+  const sourcePurchasePrice = baseMandiPricePerQuintal !== null ? baseMandiPricePerQuintal / 100 : null;
   const safeQuantity = Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? Number(quantity) : 0;
-  const canCalculate = baseMandiPricePerKg !== null && safeQuantity > 0 && !loading && !error;
+  const canCalculate = sourcePurchasePrice !== null && safeQuantity > 0 && !loading && !error;
 
   const calculations = useMemo(() => {
     return calculateTradeMetrics({
       canCalculate,
-      mandiPricePerKg: baseMandiPricePerKg ?? 0,
-      selectedCountry,
+      sourcePurchasePrice: sourcePurchasePrice ?? 0,
+      countryProfile,
       quantity: safeQuantity,
     });
-  }, [canCalculate, baseMandiPricePerKg, selectedCountry, safeQuantity]);
+  }, [canCalculate, sourcePurchasePrice, countryProfile, safeQuantity]);
 
   const priceSimulation = useMemo(() => {
     return [1, 2].map((increasePerKg) => {
-      const mandiPricePerKg = (baseMandiPricePerKg ?? 0) + increasePerKg;
+      const simulatedSourcePrice = (sourcePurchasePrice ?? 0) + increasePerKg;
       const simulation = calculateTradeMetrics({
         canCalculate,
-        mandiPricePerKg,
-        selectedCountry,
+        sourcePurchasePrice: simulatedSourcePrice,
+        countryProfile,
         quantity: safeQuantity,
       });
 
@@ -209,30 +256,35 @@ export default function Trade() {
         ...simulation,
       };
     });
-  }, [baseMandiPricePerKg, canCalculate, selectedCountry, safeQuantity]);
+  }, [sourcePurchasePrice, canCalculate, countryProfile, safeQuantity]);
 
-  const profitTone = getProfitTone(calculations.profitPerKg);
-  const recommendationText = getRecommendationDisplay(calculations.recommendation);
-  const confidenceDescription = getConfidenceDescription(calculations.confidenceLevel);
-  const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
+  const resultTone = getResultTone(calculations.classification);
+  const recommendationText = getRecommendationDisplay(calculations.classification, t);
+  const selectedCropName = cropList.find((cropItem) => cropItem.id === selectedCrop)?.name || selectedCrop;
+
+  const explanationText = useMemo(() => {
+    if (!canCalculate) return t.tradeExplainMissingData;
+
+    const parts = [];
+    if (calculations.classification === "PROFITABLE") parts.push(t.tradeExplainProfitable);
+    else if (calculations.classification === "MARGINAL") parts.push(t.tradeExplainMarginal);
+    else parts.push(t.tradeExplainWeak);
+
+    if (calculations.explanationFlags.costBurdenHigh) parts.push(t.tradeExplainCostBurden);
+    if (calculations.explanationFlags.wastageAndQualityHigh) parts.push(t.tradeExplainWastageQuality);
+    if (calculations.explanationFlags.lowSpread) parts.push(t.tradeExplainLowSpread);
+
+    return parts.join(" ");
+  }, [canCalculate, calculations, t]);
 
   async function handleShareTradeResult() {
-    const shareText = `MandiMind Trade Intelligence
-
-Crop: ${selectedCropName}
-Country: ${selectedCountry.name}
-Profit: ₹${Math.round(calculations.totalProfit).toLocaleString("en-IN")}
-Recommendation: ${calculations.recommendation}
-Confidence: ${calculations.confidenceLevel}
-
-Check your trade:
-https://mandimind.pages.dev/trade`;
+    const shareText = `MandiMind Trade Intelligence\n\nCrop: ${selectedCropName}\nCountry: ${selectedCountry.name}\nNet Profit: ₹${Math.round(calculations.totalNetProfit).toLocaleString("en-IN")}\nNet Margin: ${calculations.netMarginPercent.toFixed(1)}%\nResult: ${recommendationText}\n\nCheck your trade:\nhttps://mandimind.pages.dev/trade`;
 
     const result = await shareResult({
       title: "MandiMind Trade Intelligence",
       text: shareText,
       url: "https://mandimind.pages.dev/trade",
-      fallbackSuccessMessage: "Result copied to clipboard",
+      fallbackSuccessMessage: t.resultCopiedToClipboard,
     });
 
     setShareMessage(result.message);
@@ -255,24 +307,17 @@ https://mandimind.pages.dev/trade`;
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div ref={inputSectionRef} className="px-4 pt-6 pb-4">
         <div className="mb-4 space-y-2">
-          <h1
-            className="text-[30px] leading-tight sm:text-4xl font-extrabold text-[#004c22] tracking-tight break-words"
-            style={{ fontFamily: "Manrope, sans-serif" }}
-          >
-            <span className="block">Stop Losing Money in Mandis</span>
-            <span className="block">Check Before You Sell</span>
+          <h1 className="text-[30px] leading-tight sm:text-4xl font-extrabold text-[#004c22] tracking-tight break-words" style={{ fontFamily: "Manrope, sans-serif" }}>
+            <span className="block">{t.tradeHeroLine1}</span>
+            <span className="block">{t.tradeHeroLine2}</span>
           </h1>
-          <p className="text-sm sm:text-base text-[#1e1c10]">
-            Compare mandi price vs export value and see your real profit in seconds.
-          </p>
-          <p className="text-xs sm:text-sm text-gray-500">
-            Used by traders to avoid wrong selling decisions
-          </p>
+          <p className="text-sm sm:text-base text-[#1e1c10]">{t.tradeHeroDesc}</p>
+          <p className="text-xs sm:text-sm text-gray-500">{t.tradeHeroSubDesc}</p>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Crop</label>
+            <label className="block text-xs text-gray-500 mb-1">{t.cropLabel}</label>
             <select
               value={selectedCrop}
               onChange={(e) => setSelectedCrop(e.target.value)}
@@ -280,17 +325,17 @@ https://mandimind.pages.dev/trade`;
               className="w-full bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
               style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
             >
-              {cropLoading && <option value="">Loading available crops…</option>}
-              {cropList.map((crop) => (
-                <option key={crop.id} value={crop.id}>
-                  {crop.name}
+              {cropLoading && <option value="">{t.loadingAvailableCrops}</option>}
+              {cropList.map((cropItem) => (
+                <option key={cropItem.id} value={cropItem.id}>
+                  {cropItem.name}
                 </option>
               ))}
             </select>
           </div>
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Quantity (kg)</label>
+            <label className="block text-xs text-gray-500 mb-1">{t.tradeQuantityKg}</label>
             <input
               type="number"
               min="1"
@@ -301,7 +346,7 @@ https://mandimind.pages.dev/trade`;
           </div>
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Destination country</label>
+            <label className="block text-xs text-gray-500 mb-1">{t.tradeDestinationCountry}</label>
             <select
               value={country}
               onChange={(e) => setCountry(e.target.value)}
@@ -315,60 +360,52 @@ https://mandimind.pages.dev/trade`;
             </select>
           </div>
 
-          {error && (
-            <p className="text-sm text-red-600 font-semibold">Data unavailable</p>
-          )}
+          {error && <p className="text-sm text-red-600 font-semibold">{t.dataUnavailable}</p>}
         </div>
       </div>
 
       <div className="px-4 space-y-4">
         <section className="bg-[#004c22] rounded-xl p-4 text-white">
-          <p className="text-xs text-green-100">Total Profit</p>
-          <p className="text-3xl font-extrabold mt-1">₹{Math.round(calculations.totalProfit).toLocaleString("en-IN")}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-green-100">{t.tradeNetProfitTotal}</p>
+            <span className={`${resultTone.badge} text-[11px] px-2 py-1 rounded-full font-semibold`}>{recommendationText}</span>
+          </div>
+          <p className="text-3xl font-extrabold mt-1">₹{Math.round(calculations.totalNetProfit).toLocaleString("en-IN")}</p>
           <div className="grid grid-cols-3 gap-2 mt-4 text-center">
-            <div className={`${profitTone.card} rounded-lg p-2`}>
-              <p className={`text-[10px] ${profitTone.label}`}>Profit/kg</p>
-              <p className="text-sm font-bold">₹{calculations.profitPerKg.toFixed(2)}</p>
+            <div className={`${resultTone.card} rounded-lg p-2`}>
+              <p className={`text-[10px] ${resultTone.label}`}>{t.tradeNetProfitPerKg}</p>
+              <p className="text-sm font-bold">₹{calculations.netProfitPerKg.toFixed(2)}</p>
             </div>
-            <div className={`${profitTone.card} rounded-lg p-2`}>
-              <p className={`text-[10px] ${profitTone.label}`}>Profit %</p>
-              <p className="text-sm font-bold">{calculations.profitPercent.toFixed(1)}%</p>
+            <div className={`${resultTone.card} rounded-lg p-2`}>
+              <p className={`text-[10px] ${resultTone.label}`}>{t.tradeNetMargin}</p>
+              <p className="text-sm font-bold">{calculations.netMarginPercent.toFixed(1)}%</p>
             </div>
             <div className="bg-white/10 rounded-lg p-2">
-              <p className="text-[10px] text-green-100">Recommendation</p>
-              <p className="text-lg sm:text-xl font-extrabold tracking-wide">{recommendationText}</p>
+              <p className="text-[10px] text-green-100">{t.tradeDestinationCurrency}</p>
+              <p className="text-sm sm:text-base font-extrabold tracking-wide">{countryProfile.currency}</p>
             </div>
           </div>
-          <p className="text-[11px] text-green-100 mt-3 leading-relaxed">
-            Estimates based on mandi prices and heuristic export models. Actual profits may vary.
-          </p>
-          <div className="mt-3 space-y-1">
-            <p className="text-xs text-green-100">
-              Confidence:{" "}
-              <span className="font-semibold text-white">
-                {calculations.confidenceLevel} ({confidenceDescription})
-              </span>
-            </p>
-          </div>
-          <p className="text-[11px] text-green-100/90 mt-3">
-            ⚠️ Most traders lose money due to wrong timing. Check again tomorrow.
-          </p>
-          {!canCalculate && <p className="text-xs text-green-100 mt-3">Calculation disabled until mandi data is available.</p>}
+          <p className="text-[11px] text-green-100 mt-3 leading-relaxed">{t.tradeFormulaNote}</p>
+          <p className="text-[11px] text-green-100 mt-2">{explanationText}</p>
+          {calculations.defaultsUsed && (
+            <p className="text-[11px] text-green-100/90 mt-2">{t.tradeDefaultAssumptionNote}</p>
+          )}
+          {!canCalculate && <p className="text-xs text-green-100 mt-3">{t.tradeCalculationDisabled}</p>}
         </section>
 
         <section className="bg-white border border-gray-200 rounded-xl p-4">
-          <h2 className="text-base font-bold text-[#1e1c10] mb-3">Best Mandis (Top 3)</h2>
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">{t.topMandis}</h2>
 
           {loading ? (
-            <p className="text-sm text-gray-500">Fetching mandi prices…</p>
+            <p className="text-sm text-gray-500">{t.loadingMandiPrices}</p>
           ) : mandis.length === 0 ? (
-            <p className="text-sm text-gray-500">Data unavailable</p>
+            <p className="text-sm text-gray-500">{t.dataUnavailable}</p>
           ) : (
             <div className="space-y-2">
               {mandis.map((mandi, index) => (
-                <div key={`${mandi.mandi}-${index}`} className="flex justify-between items-center bg-[#f8fafc] rounded-lg px-3 py-2">
+                <div key={`${mandi.mandi}-${index}`} className="flex justify-between items-center bg-[#f8fafc] rounded-lg px-3 py-2 gap-2">
                   <p className="text-sm font-medium text-[#1e1c10]">{index + 1}. {mandi.mandi}</p>
-                  <p className="text-sm font-bold text-[#004c22]">₹{mandi.todayPrice.toLocaleString("en-IN")}/quintal (₹{(mandi.todayPrice / 100).toFixed(2)}/kg)</p>
+                  <p className="text-sm font-bold text-[#004c22] text-right">₹{mandi.todayPrice.toLocaleString("en-IN")}/{t.perQuintal} (₹{(mandi.todayPrice / 100).toFixed(2)}/kg)</p>
                 </div>
               ))}
             </div>
@@ -376,31 +413,43 @@ https://mandimind.pages.dev/trade`;
         </section>
 
         <section className="bg-white border border-gray-200 rounded-xl p-4">
-          <h2 className="text-base font-bold text-[#1e1c10] mb-3">Trade Breakdown</h2>
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">{t.tradeResultBreakdownTitle}</h2>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Buy (Mandi Price)</span><span className="font-semibold">₹{baseMandiPricePerQuintal?.toFixed(2) ?? "0.00"}/quintal (₹{baseMandiPricePerKg?.toFixed(2) ?? "0.00"}/kg)</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Sell (Export Price)</span><span className="font-semibold">₹{calculations.exportPrice.toFixed(2)}/kg</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Cost</span><span className="font-semibold">₹{selectedCountry.cost.toFixed(2)}/kg</span></div>
-            <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">Profit / kg</span><span className="font-bold text-[#004c22]">₹{calculations.profitPerKg.toFixed(2)}</span></div>
-          </div>
-          <div className="mt-3 pt-3 border-t border-gray-100 space-y-1 text-[11px] text-gray-500">
-            <p>📡 Data Source: Agmarknet (Govt. of India)</p>
-            <p>🕒 Last Updated: Today</p>
+            <div className="flex justify-between gap-2"><span className="text-gray-500">{t.tradeSourcePrice}</span><span className="font-semibold text-right">₹{sourcePurchasePrice?.toFixed(2) ?? "0.00"}/kg</span></div>
+            <div className="flex justify-between gap-2"><span className="text-gray-500">{t.tradeDestinationPrice}</span><span className="font-semibold text-right">₹{calculations.destinationSellingPrice.toFixed(2)}/kg</span></div>
+            <div className="flex justify-between gap-2"><span className="text-gray-500">{t.tradeWastage}</span><span className="font-semibold text-right">{calculations.components.wastagePercent.toFixed(1)}%</span></div>
+            <div className="flex justify-between gap-2"><span className="text-gray-500">{t.tradeQualityAdjustment}</span><span className="font-semibold text-right">{calculations.components.qualityAdjustmentPercent.toFixed(1)}%</span></div>
+            <div className="flex justify-between gap-2"><span className="text-gray-500">{t.tradeTotalCost}</span><span className="font-semibold text-right">₹{calculations.totalCost.toFixed(2)}/kg</span></div>
+            <div className="flex justify-between gap-2"><span className="text-gray-500">{t.tradeNetProfitPerKg}</span><span className="font-semibold text-right">₹{calculations.netProfitPerKg.toFixed(2)}/kg</span></div>
+            <div className="flex justify-between pt-2 border-t border-gray-100 gap-2"><span className="text-gray-700 font-medium">{t.tradeNetMargin}</span><span className="font-bold text-[#004c22]">{calculations.netMarginPercent.toFixed(1)}%</span></div>
           </div>
         </section>
 
         <section className="bg-white border border-gray-200 rounded-xl p-4">
-          <h2 className="text-base font-bold text-[#1e1c10] mb-3">📊 Price Change Simulation</h2>
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">{t.tradeCostInputsTitle}</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeTransportCost}</span><span className="font-semibold">₹{calculations.components.transportCost.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradePackagingCost}</span><span className="font-semibold">₹{calculations.components.packagingCost.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeHandlingCost}</span><span className="font-semibold">₹{calculations.components.handlingCost.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeCommissionFees}</span><span className="font-semibold">₹{calculations.components.commissionOrFees.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeStorageCost}</span><span className="font-semibold">₹{calculations.components.storageOrColdChainCost.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeRiskBuffer}</span><span className="font-semibold">{calculations.components.riskBufferPercent.toFixed(1)}% (₹{(calculations.components.riskBufferCost || 0).toFixed(2)})</span></div>
+          </div>
+        </section>
+
+        <section className="bg-white border border-gray-200 rounded-xl p-4">
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">{t.tradeSimulationTitle}</h2>
           <div className="space-y-3 text-sm">
             {priceSimulation.map((scenario) => (
               <div key={scenario.increasePerKg} className="bg-[#f8fafc] rounded-lg px-3 py-2">
-                <p className="font-medium text-[#1e1c10]">If mandi price increases by ₹{scenario.increasePerKg}/kg:</p>
-                <p className="text-gray-700 mt-1">→ Profit: ₹{Math.round(scenario.totalProfit).toLocaleString("en-IN")}</p>
-                <p className="text-gray-700">→ Recommendation: {getRecommendationDisplay(scenario.recommendation)}</p>
+                <p className="font-medium text-[#1e1c10]">{t.tradeSimulationIfPriceUp.replace("{value}", scenario.increasePerKg)}</p>
+                <p className="text-gray-700 mt-1">→ {t.tradeNetProfitTotal}: ₹{Math.round(scenario.totalNetProfit).toLocaleString("en-IN")}</p>
+                <p className="text-gray-700">→ {t.tradeNetMargin}: {scenario.netMarginPercent.toFixed(1)}%</p>
+                <p className="text-gray-700">→ {t.recommendedAction}: {getRecommendationDisplay(scenario.classification, t)}</p>
               </div>
             ))}
           </div>
-          {!canCalculate && <p className="text-xs text-gray-500 mt-3">Simulation available once mandi data is loaded.</p>}
+          {!canCalculate && <p className="text-xs text-gray-500 mt-3">{t.tradeSimulationDisabled}</p>}
         </section>
 
         <section className="space-y-2">
@@ -409,18 +458,16 @@ https://mandimind.pages.dev/trade`;
             className="w-full bg-white border border-[#004c22] text-[#004c22] font-bold py-3 rounded-xl active:scale-[0.98] transition-transform"
             style={{ fontFamily: "Manrope, sans-serif", minHeight: "52px" }}
           >
-            📤 Share Trade Result
+            {t.tradeShareResult}
           </button>
-          {shareMessage && (
-            <p className="text-center text-xs text-gray-600">{shareMessage}</p>
-          )}
-          <p className="text-center text-sm text-[#1e1c10]">👉 Try your crop or mandi and see if you're making profit</p>
+          {shareMessage && <p className="text-center text-xs text-gray-600">{shareMessage}</p>}
+          <p className="text-center text-sm text-[#1e1c10]">{t.tradeCtaLine}</p>
           <button
             onClick={handleCheckAnotherTrade}
             className="w-full bg-[#004c22] text-white font-bold py-3 rounded-xl active:scale-[0.98] transition-transform"
             style={{ fontFamily: "Manrope, sans-serif", minHeight: "52px" }}
           >
-            🔍 Check another trade
+            {t.tradeCheckAnother}
           </button>
         </section>
       </div>
