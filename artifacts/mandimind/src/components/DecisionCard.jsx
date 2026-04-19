@@ -1,5 +1,11 @@
 import { useLanguage } from "../context/LanguageContext";
 
+function getConfidence(score, t) {
+  if (score >= 70) return t.high.toUpperCase();
+  if (score >= 45) return t.medium.toUpperCase();
+  return t.low.toUpperCase();
+}
+
 export default function DecisionCard({ decision, score }) {
   const { t } = useLanguage();
 
@@ -25,48 +31,28 @@ export default function DecisionCard({ decision, score }) {
   };
 
   const c = config[decision] || config.HOLD;
-
-  const arc = (score / 100) * 251;
+  const confidence = getConfidence(score, t);
 
   return (
     <div className={`${c.bg} rounded-2xl p-6 text-white shadow-xl ${c.glow}`}>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <div
-            className="text-4xl font-extrabold leading-none"
-            style={{ fontFamily: "Manrope, sans-serif" }}
-          >
-            {c.text}
-          </div>
-          <p
-            className="text-sm opacity-85 mt-1 max-w-[200px]"
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
-            {c.desc}
-          </p>
+      <div className="space-y-2">
+        <div
+          className="text-4xl font-extrabold leading-none"
+          style={{ fontFamily: "Manrope, sans-serif" }}
+        >
+          {c.text}
         </div>
-        <div className="relative w-16 h-16 shrink-0">
-          <svg className="w-16 h-16 -rotate-90" viewBox="0 0 90 90">
-            <circle cx="45" cy="45" r="40" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="8" />
-            <circle
-              cx="45"
-              cy="45"
-              r="40"
-              fill="none"
-              stroke="white"
-              strokeWidth="8"
-              strokeDasharray={`${arc} 251`}
-              strokeLinecap="round"
-            />
-          </svg>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-sm font-bold">{score}</span>
-          </div>
-        </div>
+        <p
+          className="text-base opacity-95"
+          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+        >
+          {c.desc}
+        </p>
       </div>
-      <div className="bg-white/15 rounded-xl py-1.5 px-3 text-center">
-        <span className="text-xs opacity-75">{t.score}: </span>
-        <span className="text-sm font-bold">{score}/100</span>
+
+      <div className="mt-5 bg-white/15 rounded-xl py-2 px-3 text-center">
+        <span className="text-xs tracking-wide opacity-80">CONFIDENCE: </span>
+        <span className="text-sm font-bold tracking-wide">{confidence}</span>
       </div>
     </div>
   );
