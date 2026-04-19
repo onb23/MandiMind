@@ -51,7 +51,9 @@ export default function DecisionCard({ decision, score }) {
       </div>
 
       <div className="mt-5 bg-white/15 rounded-xl py-2 px-3 text-center">
-        <span className="text-xs tracking-wide opacity-80">CONFIDENCE: </span>
+        <span className="text-xs tracking-wide opacity-80">
+          {(t.confidence || "CONFIDENCE").toUpperCase()}:{" "}
+        </span>
         <span className="text-sm font-bold tracking-wide">{confidence}</span>
       </div>
     </div>

@@ -2,8 +2,12 @@ import { getVariantPriceOffset } from "../data/mockPrices";
 
 export function calculateMovingAverage(prices, days) {
   if (prices.length < days) return null;
-  const recent = prices.slice(-days);
-  return recent.reduce((sum, p) => sum + p.price, 0) / days;
+  const recent = prices
+    .slice(-days)
+    .map((p) => p.price)
+    .filter((price) => Number.isFinite(price));
+  if (recent.length < days) return null;
+  return recent.reduce((sum, price) => sum + price, 0) / days;
 }
 
 function norm(val) {
@@ -43,18 +47,22 @@ export function getDecision(prices, inputs) {
   else if (u === "CAN_WAIT" || u === "CAN WAIT") score += 15;
 
   let decision;
-  if (score >= 60) decision = "SELL";
-  else if (score >= 35) decision = "HOLD";
-  else decision = "WAIT";
+  if (score <= 30) decision = "SELL";
+  else if (score <= 60) decision = "WAIT";
+  else decision = "HOLD";
 
-  const priceValues = prices.map((p) => p.price);
-  const baseCurrentPrice = prices[prices.length - 1]?.price || 0;
+  const priceValues = prices
+    .map((p) => p.price)
+    .filter((price) => Number.isFinite(price));
+  const baseCurrentPrice = Number.isFinite(prices[prices.length - 1]?.price)
+    ? prices[prices.length - 1].price
+    : null;
   const variantOffset = variety && cropId ? getVariantPriceOffset(cropId, variety) : 0;
 
-  const currentPrice = baseCurrentPrice + variantOffset;
+  const currentPrice = baseCurrentPrice == null ? null : baseCurrentPrice + variantOffset;
   const priceRange = {
-    min: Math.min(...priceValues) + variantOffset,
-    max: Math.max(...priceValues) + variantOffset,
+    min: priceValues.length ? Math.min(...priceValues) + variantOffset : null,
+    max: priceValues.length ? Math.max(...priceValues) + variantOffset : null,
   };
 
   const qualityStr = q === "HIGH" ? "High quality commands a premium — buyers willing to pay more"
