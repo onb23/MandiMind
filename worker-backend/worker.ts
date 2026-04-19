@@ -62,10 +62,15 @@ interface PriceRecord {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function parseArrivalDate(d: string): number {
-  const parts = d?.split("/");
-  if (!parts || parts.length !== 3) return 0;
-  const [dd, mm, yyyy] = parts;
-  return new Date(`${yyyy}-${mm}-${dd}`).getTime();
+  if (!d || typeof d !== "string") return 0;
+  const slashParts = d.split("/");
+  if (slashParts.length === 3) {
+    const [dd, mm, yyyy] = slashParts;
+    return new Date(`${yyyy}-${mm}-${dd}`).getTime();
+  }
+  const parsed = new Date(d);
+  const ts = parsed.getTime();
+  return Number.isFinite(ts) ? ts : 0;
 }
 
 function isDataStale(dateStr: string): boolean {
@@ -77,6 +82,23 @@ function isDataStale(dateStr: string): boolean {
 
 function toDisplayCropName(commodity: string): string {
   return COMMODITY_DISPLAY_MAP[commodity] ?? commodity;
+}
+
+function formatDateDdMmYyyy(date: Date): string {
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function getActiveCropFallback() {
+  return Object.entries(CROP_MAP).map(([id, commodity]) => ({
+    id,
+    name: toDisplayCropName(commodity),
+    commodity,
+    latestDate: null,
+    recordCount: 0,
+  }));
 }
 
 function json(body: unknown, status = 200): Response {
@@ -350,32 +372,38 @@ async function handleCrops(params: URLSearchParams, env: Env): Promise<Response>
   }
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 500);
     const today = new Date();
     const bucket = new Map<string, { latestTs: number; latestDate: string; recordCount: number }>();
 
-    for (const row of records) {
-      const commodity = row.commodity?.trim();
-      if (!commodity) continue;
-      const ts = parseArrivalDate(row.date);
-      if (!ts) continue;
+    for (let dayOffset = 0; dayOffset <= windowDays; dayOffset += 1) {
+      const probeDate = new Date(today);
+      probeDate.setDate(today.getDate() - dayOffset);
+      const arrivalDate = formatDateDdMmYyyy(probeDate);
+      const rows = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 200, arrivalDate);
 
-      const ageDays = Math.floor((today.getTime() - ts) / (24 * 60 * 60 * 1000));
-      if (ageDays < 0 || ageDays > windowDays) continue;
+      for (const row of rows) {
+        const commodity = row.commodity?.trim();
+        if (!commodity) continue;
+        const ts = parseArrivalDate(row.date);
+        if (!ts) continue;
 
-      const existing = bucket.get(commodity);
-      if (!existing) {
-        bucket.set(commodity, { latestTs: ts, latestDate: row.date, recordCount: 1 });
-      } else {
-        existing.recordCount += 1;
-        if (ts > existing.latestTs) {
-          existing.latestTs = ts;
-          existing.latestDate = row.date;
+        const ageDays = Math.floor((today.getTime() - ts) / (24 * 60 * 60 * 1000));
+        if (ageDays < 0 || ageDays > windowDays) continue;
+
+        const existing = bucket.get(commodity);
+        if (!existing) {
+          bucket.set(commodity, { latestTs: ts, latestDate: row.date, recordCount: 1 });
+        } else {
+          existing.recordCount += 1;
+          if (ts > existing.latestTs) {
+            existing.latestTs = ts;
+            existing.latestDate = row.date;
+          }
         }
       }
     }
 
-    const crops = Array.from(bucket.entries())
+    const liveCrops = Array.from(bucket.entries())
       .map(([commodity, meta]) => ({
         id: commodity,
         name: toDisplayCropName(commodity),
@@ -391,12 +419,24 @@ async function handleCrops(params: URLSearchParams, env: Env): Promise<Response>
         return a.name.localeCompare(b.name);
       });
 
-    const data = { crops, windowDays, source: "live" };
+    const crops = liveCrops.length > 0 ? liveCrops : getActiveCropFallback();
+    const source = liveCrops.length > 0 ? "live" : "fallback_active";
+
+    const data = { crops, windowDays, source };
     cache.set(cacheKey, { data, ts: Date.now() });
     return json(data);
   } catch {
     if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
-    return json({ crops: [], windowDays, source: "error", error: "data.gov.in unavailable" }, 502);
+    return json(
+      {
+        crops: getActiveCropFallback(),
+        windowDays,
+        source: "fallback_active",
+        stale: true,
+        error: "data.gov.in unavailable",
+      },
+      200
+    );
   }
 }
 
