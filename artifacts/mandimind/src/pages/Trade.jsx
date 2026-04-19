@@ -49,6 +49,52 @@ function getRecommendationDisplay(recommendation) {
   return "⚠️ WAIT";
 }
 
+function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry, quantity }) {
+  if (!canCalculate) {
+    return {
+      exportPrice: 0,
+      profitPerKg: 0,
+      totalProfit: 0,
+      profitPercent: 0,
+      recommendation: "WAIT",
+      confidenceLevel: "LOW",
+      reasonMessage: "Export not profitable due to high costs",
+    };
+  }
+
+  const exportPrice = mandiPricePerKg * selectedCountry.multiplier;
+  const profitPerKg = exportPrice - mandiPricePerKg - selectedCountry.cost;
+  const totalProfit = profitPerKg * quantity;
+  const profitPercent = mandiPricePerKg > 0 ? (profitPerKg / mandiPricePerKg) * 100 : 0;
+
+  let recommendation = "WAIT";
+  if (profitPerKg > 4) recommendation = "EXPORT";
+  else if (profitPerKg > 1) recommendation = "SELL LOCAL";
+
+  let confidenceLevel = "LOW";
+  if (profitPerKg > 5) confidenceLevel = "HIGH";
+  else if (profitPerKg > 2) confidenceLevel = "MEDIUM";
+
+  let reasonMessage = "Export not profitable due to high costs";
+  if (profitPerKg > 0 && profitPerKg <= 2) {
+    reasonMessage = "Profit margin too low, better to wait";
+  } else if (profitPerKg > 2 && profitPerKg <= 5) {
+    reasonMessage = "Moderate profit opportunity, consider local sale";
+  } else if (profitPerKg > 5) {
+    reasonMessage = "Strong export opportunity";
+  }
+
+  return {
+    exportPrice,
+    profitPerKg,
+    totalProfit,
+    profitPercent,
+    recommendation,
+    confidenceLevel,
+    reasonMessage,
+  };
+}
+
 export default function Trade() {
   const cropList = getCropNames();
   const [selectedCrop, setSelectedCrop] = useState(cropList[0]?.id || "onion");
@@ -112,50 +158,30 @@ export default function Trade() {
   const canCalculate = baseMandiPricePerKg !== null && safeQuantity > 0 && !loading && !error;
 
   const calculations = useMemo(() => {
-    if (!canCalculate) {
-      return {
-        exportPrice: 0,
-        profitPerKg: 0,
-        totalProfit: 0,
-        profitPercent: 0,
-        recommendation: "WAIT",
-        confidenceLevel: "LOW",
-        reasonMessage: "Export not profitable due to high costs",
-      };
-    }
-
-    const exportPrice = baseMandiPricePerKg * selectedCountry.multiplier;
-    const profitPerKg = exportPrice - baseMandiPricePerKg - selectedCountry.cost;
-    const totalProfit = profitPerKg * safeQuantity;
-    const profitPercent = baseMandiPricePerKg > 0 ? (profitPerKg / baseMandiPricePerKg) * 100 : 0;
-
-    let recommendation = "WAIT";
-    if (profitPerKg > 4) recommendation = "EXPORT";
-    else if (profitPerKg > 1) recommendation = "SELL LOCAL";
-
-    let confidenceLevel = "LOW";
-    if (profitPerKg > 5) confidenceLevel = "HIGH";
-    else if (profitPerKg > 2) confidenceLevel = "MEDIUM";
-
-    let reasonMessage = "Export not profitable due to high costs";
-    if (profitPerKg > 0 && profitPerKg <= 2) {
-      reasonMessage = "Profit margin too low, better to wait";
-    } else if (profitPerKg > 2 && profitPerKg <= 5) {
-      reasonMessage = "Moderate profit opportunity, consider local sale";
-    } else if (profitPerKg > 5) {
-      reasonMessage = "Strong export opportunity";
-    }
-
-    return {
-      exportPrice,
-      profitPerKg,
-      totalProfit,
-      profitPercent,
-      recommendation,
-      confidenceLevel,
-      reasonMessage,
-    };
+    return calculateTradeMetrics({
+      canCalculate,
+      mandiPricePerKg: baseMandiPricePerKg ?? 0,
+      selectedCountry,
+      quantity: safeQuantity,
+    });
   }, [canCalculate, baseMandiPricePerKg, selectedCountry, safeQuantity]);
+
+  const priceSimulation = useMemo(() => {
+    return [1, 2].map((increasePerKg) => {
+      const mandiPricePerKg = (baseMandiPricePerKg ?? 0) + increasePerKg;
+      const simulation = calculateTradeMetrics({
+        canCalculate,
+        mandiPricePerKg,
+        selectedCountry,
+        quantity: safeQuantity,
+      });
+
+      return {
+        increasePerKg,
+        ...simulation,
+      };
+    });
+  }, [baseMandiPricePerKg, canCalculate, selectedCountry, safeQuantity]);
 
   const profitTone = getProfitTone(calculations.profitPerKg);
   const recommendationText = getRecommendationDisplay(calculations.recommendation);
@@ -302,6 +328,20 @@ https://mandimind.pages.dev/trade`;
             <div className="flex justify-between"><span className="text-gray-500">Cost</span><span className="font-semibold">₹{selectedCountry.cost.toFixed(2)}/kg</span></div>
             <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">Profit / kg</span><span className="font-bold text-[#004c22]">₹{calculations.profitPerKg.toFixed(2)}</span></div>
           </div>
+        </section>
+
+        <section className="bg-white border border-gray-200 rounded-xl p-4">
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">📊 Price Change Simulation</h2>
+          <div className="space-y-3 text-sm">
+            {priceSimulation.map((scenario) => (
+              <div key={scenario.increasePerKg} className="bg-[#f8fafc] rounded-lg px-3 py-2">
+                <p className="font-medium text-[#1e1c10]">If mandi price increases by ₹{scenario.increasePerKg}/kg:</p>
+                <p className="text-gray-700 mt-1">→ Profit: ₹{Math.round(scenario.totalProfit).toLocaleString("en-IN")}</p>
+                <p className="text-gray-700">→ Recommendation: {getRecommendationDisplay(scenario.recommendation)}</p>
+              </div>
+            ))}
+          </div>
+          {!canCalculate && <p className="text-xs text-gray-500 mt-3">Simulation available once mandi data is loaded.</p>}
         </section>
 
         <section className="space-y-2">
