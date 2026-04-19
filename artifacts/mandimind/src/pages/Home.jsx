@@ -19,6 +19,7 @@ export default function Home() {
 
   const [selectedCrop,  setSelectedCrop]  = useState("");
   const [selectedMandi, setSelectedMandi] = useState("");
+  const [priceType, setPriceType] = useState("today");
 
   const [cropList, setCropList] = useState([]);
   const [cropLoading, setCropLoading] = useState(true);
@@ -28,21 +29,22 @@ export default function Home() {
   const [mandiLoading, setMandiLoading] = useState(false);
   const [mandiError, setMandiError] = useState("");
 
-  const visibleMandis = useMemo(
-    () => mandiOptions.filter((item) => item.isUsable),
-    [mandiOptions]
-  );
+  const visibleMandis = useMemo(() => {
+    return mandiOptions.filter((item) => {
+      if (priceType === "today") return Boolean(item?.todayOption?.isUsable);
+      return Boolean(item?.latestOption?.isUsable);
+    });
+  }, [mandiOptions, priceType]);
 
   const handleCropChange = (cropId) => {
     setSelectedCrop(cropId);
     setSelectedMandi("");
+    setPriceType("today");
   };
 
   const handleMandiChange = (mandi) => {
     setSelectedMandi(mandi);
   };
-
-  const safeErrorMessage = t.liveMandiTemporarilyUnavailable;
 
   const jumpToCropSelector = () => {
     const cropField = document.getElementById("crop-selector");
@@ -50,8 +52,6 @@ export default function Home() {
       cropField.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   };
-
-
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +71,7 @@ export default function Home() {
         if (!cancelled) {
           console.error("[MandiMind] loadCrops failed:", error);
           setCropList([]);
-          setCropError(safeErrorMessage);
+          setCropError(t.liveMandiTemporarilyUnavailable);
         }
       } finally {
         if (!cancelled) setCropLoading(false);
@@ -104,7 +104,7 @@ export default function Home() {
 
       if (result?.source === "error") {
         setMandiOptions([]);
-        setMandiError(safeErrorMessage);
+        setMandiError(t.liveMandiTemporarilyUnavailable);
       } else {
         setMandiOptions(result?.mandis || []);
         if (selectedMandi && !(result?.mandis || []).some((item) => item.mandi === selectedMandi)) {
@@ -121,6 +121,31 @@ export default function Home() {
       cancelled = true;
     };
   }, [selectedCrop]);
+
+  useEffect(() => {
+    if (selectedMandi && !visibleMandis.some((item) => item.mandi === selectedMandi)) {
+      setSelectedMandi("");
+    }
+  }, [priceType, selectedMandi, visibleMandis]);
+
+  const formatInr = (price) => {
+    if (!Number.isFinite(price)) return "N/A";
+    return `₹${Math.round(price).toLocaleString("en-IN")}/qtl`;
+  };
+
+  const getMandiOptionLabel = (item) => {
+    if (priceType === "today") {
+      const price = formatInr(item?.todayOption?.price);
+      return `${item.mandi} — ${price} · ${t.today}`;
+    }
+
+    const freshnessDays = item?.latestOption?.freshnessDays;
+    const freshness = Number.isFinite(freshnessDays)
+      ? (freshnessDays === 1 ? t.dayOld : t.daysOld).replace("{days}", freshnessDays)
+      : t.latestAvailable;
+    const price = formatInr(item?.latestOption?.price);
+    return `${item.mandi} — ${price} · ${freshness}`;
+  };
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -150,10 +175,10 @@ export default function Home() {
               className="text-base font-extrabold text-[#004c22]"
               style={{ fontFamily: "Manrope, sans-serif" }}
             >
-              Mandi insights will appear here
+              {t.mandiInsightsTitle}
             </h2>
             <p className="text-xs text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Start by selecting a crop, then choose a mandi to view live prices and recommendations.
+              {t.mandiInsightsDesc}
             </p>
           </div>
           <div className="mt-3 rounded-lg border border-dashed border-[#cde8d6] bg-[#f6fbf8] px-3 py-3">
@@ -162,7 +187,7 @@ export default function Home() {
               className="w-full rounded-lg border border-[#004c22] bg-white px-3 py-2 text-xs font-semibold text-[#004c22] active:scale-[0.98] transition-transform"
               style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
             >
-              Select crop to begin
+              {t.selectCropToBegin}
             </button>
           </div>
         </section>
@@ -193,7 +218,7 @@ export default function Home() {
           {!cropLoading && cropError && (
             <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {t.cropAvailabilityRefreshFailed} {safeErrorMessage}
+                {t.cropAvailabilityRefreshFailed} {cropError}
               </p>
             </div>
           )}
@@ -205,6 +230,42 @@ export default function Home() {
         </div>
 
         <div>
+          {selectedCrop && (
+            <div className="mb-3">
+              <p
+                className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-1.5"
+                style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+              >
+                {t.priceTypeLabel}
+              </p>
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#fff3d6] p-1">
+                <button
+                  type="button"
+                  onClick={() => setPriceType("today")}
+                  className={`rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+                    priceType === "today"
+                      ? "bg-white text-[#004c22] shadow-sm"
+                      : "text-[#1e1c10] opacity-75"
+                  }`}
+                  style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+                >
+                  {t.priceTypeToday}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPriceType("latest")}
+                  className={`rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+                    priceType === "latest"
+                      ? "bg-white text-[#004c22] shadow-sm"
+                      : "text-[#1e1c10] opacity-75"
+                  }`}
+                  style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+                >
+                  {t.priceTypeLatest}
+                </button>
+              </div>
+            </div>
+          )}
           <label
             className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-1.5"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
@@ -223,7 +284,7 @@ export default function Home() {
             </option>
             {visibleMandis.map((item) => (
               <option key={item.mandi} value={item.mandi}>
-                {item.mandi}{item.bucket === "latest_available" ? ` (${t.dayShortOld.replace("{days}", item.freshnessDays)})` : ""}
+                {getMandiOptionLabel(item)}
               </option>
             ))}
           </select>
@@ -236,7 +297,7 @@ export default function Home() {
           )}
           {selectedCrop && !mandiLoading && !mandiError && visibleMandis.length === 0 && (
             <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {t.noUsableMandiDataForCrop}
+              {priceType === "today" ? t.noMandiTodaySwitchToLatest : t.noMandiLast3Days}
             </p>
           )}
         </div>

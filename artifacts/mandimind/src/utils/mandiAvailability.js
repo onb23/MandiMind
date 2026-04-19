@@ -57,12 +57,35 @@ export function getMandiAvailabilityFromRecords(records, options = {}) {
     .sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime());
 
   if (!normalizedRecords.length) {
-    return { bucket: "unavailable", isUsable: false };
+    return {
+      bucket: "unavailable",
+      isUsable: false,
+      todayOption: { isUsable: false, price: null, date: null, freshnessDays: null },
+      latestOption: { isUsable: false, price: null, date: null, freshnessDays: null },
+    };
   }
 
   const liveToday = normalizedRecords.find(
     (row) => startOfDay(row.parsedDate).getTime() === today.getTime()
   );
+
+  const latestWithinThreeDays = normalizedRecords.find((row) => {
+    const freshnessDays = getFreshnessDays(row.parsedDate, today);
+    return freshnessDays >= 1 && freshnessDays <= maxFreshnessDays;
+  });
+
+  const todayOption = liveToday
+    ? { isUsable: true, price: liveToday.price, date: liveToday.date, freshnessDays: 0 }
+    : { isUsable: false, price: null, date: null, freshnessDays: null };
+
+  const latestOption = latestWithinThreeDays
+    ? {
+      isUsable: true,
+      price: latestWithinThreeDays.price,
+      date: latestWithinThreeDays.date,
+      freshnessDays: getFreshnessDays(latestWithinThreeDays.parsedDate, today),
+    }
+    : { isUsable: false, price: null, date: null, freshnessDays: null };
 
   if (liveToday) {
     return {
@@ -72,6 +95,8 @@ export function getMandiAvailabilityFromRecords(records, options = {}) {
       usedDate: liveToday.date,
       freshnessDays: 0,
       selectedPrice: liveToday.price,
+      todayOption,
+      latestOption,
     };
   }
 
@@ -79,7 +104,13 @@ export function getMandiAvailabilityFromRecords(records, options = {}) {
   const freshnessDays = getFreshnessDays(latest.parsedDate, today);
 
   if (freshnessDays > maxFreshnessDays) {
-    return { bucket: "unavailable", isUsable: false, freshnessDays };
+    return {
+      bucket: "unavailable",
+      isUsable: false,
+      freshnessDays,
+      todayOption,
+      latestOption,
+    };
   }
 
   return {
@@ -89,6 +120,8 @@ export function getMandiAvailabilityFromRecords(records, options = {}) {
     usedDate: latest.date,
     freshnessDays,
     selectedPrice: latest.price,
+    todayOption,
+    latestOption,
   };
 }
 
@@ -189,6 +222,11 @@ export async function fetchAvailableMandis(cropId, state = "Maharashtra", option
         ...mandiItem,
         ...mandiAvailability,
         todayPrice: mandiAvailability.selectedPrice ?? mandiItem.todayPrice,
+        currentPrice: mandiAvailability.todayOption?.price ?? null,
+        latestPrice: mandiAvailability.latestOption?.price ?? null,
+        todayDate: mandiAvailability.todayOption?.date ?? null,
+        latestDate: mandiAvailability.latestOption?.date ?? null,
+        latestFreshnessDays: mandiAvailability.latestOption?.freshnessDays ?? null,
         lastUpdated: mandiAvailability.usedDate ?? mandiItem.lastUpdated,
         availability,
         recentHistoryCount,
