@@ -8,6 +8,20 @@ import { shareResult } from "../utils/shareResult";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parseArrivalDate(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const [dd, mm, yyyy] = dateStr.split("/");
+  if (!dd || !mm || !yyyy) return null;
+  const parsed = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
 export default function Decision() {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -27,40 +41,86 @@ export default function Decision() {
   const cropInfo = getCropById(cropId);
 
   // ── Live price data from Cloudflare Worker (/api/prices) ─────────────────
-  const [livePrices,      setLivePrices]      = useState(null);
-  const [liveCurrent,     setLiveCurrent]     = useState(null);
-  const [liveRange,       setLiveRange]       = useState(null);
-  const [liveLastUpdated, setLiveLastUpdated] = useState(null);
-  const [priceSource,     setPriceSource]     = useState("loading");
+  const [livePrices, setLivePrices] = useState(null);
+  const [liveCurrent, setLiveCurrent] = useState(null);
+  const [liveRange, setLiveRange] = useState(null);
 
   useEffect(() => {
     if (!cropId || !mandi) return;
     fetchPrices(cropId, mandi, stateVal, 30).then((res) => {
       if (res?.data?.length) {
-        setLivePrices(res.data.map(r => ({ price: r.modal_price ?? r.price })));
+        setLivePrices(res.data);
         setLiveCurrent(res.currentPrice);
         setLiveRange(res.priceRange);
-        setLiveLastUpdated(res.lastUpdated);
-        setPriceSource(res.source || "live");
-      } else {
-        setPriceSource(res?.source || "error");
-        if (res?.error) console.error("[MandiMind] Decision prices:", res.error);
+      } else if (res?.error) {
+        console.error("[MandiMind] Decision prices:", res.error);
       }
     });
   }, [cropId, mandi, stateVal]);
 
   // Prices used for decision engine: prefer live, fallback to empty
-  const prices = livePrices ?? [];
+  const prices = useMemo(
+    () => (livePrices ?? []).map((r) => ({ price: r.modal_price ?? r.price, date: r.date })),
+    [livePrices]
+  );
 
   const localResult = useMemo(
     () => getDecision(prices, { quality, harvest, storage, urgency, variety, cropId }),
     [prices, quality, harvest, storage, urgency, variety, cropId]
   );
 
+  const mandiDataStatus = useMemo(() => {
+    const today = startOfDay(new Date());
+
+    const records = (livePrices ?? [])
+      .map((row) => {
+        const price = row.modal_price ?? row.price;
+        const parsedDate = parseArrivalDate(row.date);
+        if (!Number.isFinite(price) || !parsedDate) return null;
+        return { price, date: row.date, parsedDate };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime());
+
+    if (!records.length) return { type: "unavailable", isUsable: false };
+
+    const todayRecord = records.find(
+      (record) => startOfDay(record.parsedDate).getTime() === today.getTime()
+    );
+
+    if (todayRecord) {
+      return {
+        type: "today",
+        isUsable: true,
+        usedDate: todayRecord.date,
+        freshnessDays: 0,
+        selectedPrice: todayRecord.price,
+      };
+    }
+
+    const latestRecord = records[0];
+    const freshnessDays = Math.max(
+      0,
+      Math.floor((today.getTime() - startOfDay(latestRecord.parsedDate).getTime()) / DAY_MS)
+    );
+
+    if (freshnessDays > 7) {
+      return { type: "stale_unusable", isUsable: false, freshnessDays };
+    }
+
+    return {
+      type: freshnessDays <= 2 ? "fallback_ok" : "fallback_warn",
+      isUsable: true,
+      usedDate: latestRecord.date,
+      freshnessDays,
+      selectedPrice: latestRecord.price,
+    };
+  }, [livePrices]);
+
   // ── Mandi comparison from Cloudflare Worker (/api/compare) ───────────────
   const [mandiCompare, setMandiCompare] = useState([]);
   const [compareLoading, setCompareLoading] = useState(true);
-  const [compareError,   setCompareError]   = useState(false);
+  const [compareError, setCompareError] = useState(false);
 
   useEffect(() => {
     setCompareLoading(true);
@@ -82,27 +142,45 @@ export default function Decision() {
       .finally(() => setCompareLoading(false));
   }, [cropId, stateVal]);
 
-  const currentPrice   = liveCurrent  ?? localResult.currentPrice;
-  const priceRangeLow  = liveRange?.low  ?? localResult.priceRange.min;
-  const priceRangeHigh = liveRange?.high ?? localResult.priceRange.max;
-  const isLiveData = priceSource === "live";
+  const hasUsableMandiData = mandiDataStatus.isUsable;
+  const usesTodayData = mandiDataStatus.type === "today";
+  const usesFallbackData = mandiDataStatus.type === "fallback_ok" || mandiDataStatus.type === "fallback_warn";
+  const forceNotEnoughData = !hasUsableMandiData;
+
+  const currentPrice = hasUsableMandiData
+    ? (mandiDataStatus.selectedPrice ?? liveCurrent ?? localResult.currentPrice)
+    : null;
+  const priceRangeLow = hasUsableMandiData ? (liveRange?.low ?? localResult.priceRange.min) : null;
+  const priceRangeHigh = hasUsableMandiData ? (liveRange?.high ?? localResult.priceRange.max) : null;
+
+  const decisionResult = forceNotEnoughData
+    ? {
+        ...localResult,
+        decision: "NOT ENOUGH DATA",
+        explanation: {
+          ...localResult.explanation,
+          trend: "No recent mandi data available for this crop/mandi",
+        },
+      }
+    : localResult;
 
   const formatPrice = (value) => (
-    Number.isFinite(value) ? `₹${value.toLocaleString("en-IN")}` : "Data not available"
+    Number.isFinite(value) ? `₹${value.toLocaleString("en-IN")}` : "Data unavailable"
   );
 
   const formatRoundedPrice = (value) => (
-    Number.isFinite(value) ? `₹${Math.round(value).toLocaleString("en-IN")}` : "Data not available"
+    Number.isFinite(value) ? `₹${Math.round(value).toLocaleString("en-IN")}` : "Data unavailable"
   );
 
   const trendText =
-    localResult.trend === "RISING"  ? t.rising  :
-    localResult.trend === "FALLING" ? t.falling : t.stable;
+    decisionResult.trend === "RISING" ? t.rising
+      : decisionResult.trend === "FALLING" ? t.falling
+        : t.stable;
 
   const trendClass =
-    localResult.trend === "RISING"  ? "bg-green-100 text-green-700" :
-    localResult.trend === "FALLING" ? "bg-red-100 text-red-700"     :
-    "bg-gray-100 text-gray-700";
+    decisionResult.trend === "RISING" ? "bg-green-100 text-green-700"
+      : decisionResult.trend === "FALLING" ? "bg-red-100 text-red-700"
+        : "bg-gray-100 text-gray-700";
 
   const totalValue = Number(quantity) > 0 && Number.isFinite(currentPrice)
     ? `₹${(currentPrice * Number(quantity)).toLocaleString("en-IN")}`
@@ -113,9 +191,9 @@ export default function Decision() {
 
 Crop: ${cropInfo.name.split(" / ")[0]}
 Mandi: ${mandi}
-Current Price: ${Number.isFinite(currentPrice) ? `₹${currentPrice.toLocaleString("en-IN")}` : "Data not available"}
-Decision: ${localResult.decision}
-Reason: ${localResult.explanation?.trend || "N/A"}
+Current Price: ${Number.isFinite(currentPrice) ? `₹${currentPrice.toLocaleString("en-IN")}` : "Data unavailable"}
+Decision: ${decisionResult.decision}
+Reason: ${decisionResult.explanation?.trend || "N/A"}
 
 Check on MandiMind:
 https://mandimind.pages.dev/`;
@@ -149,21 +227,33 @@ https://mandimind.pages.dev/`;
       </div>
 
       <div className="px-4 space-y-4">
-        <DecisionCard decision={localResult.decision} score={localResult.score} />
+        <DecisionCard
+          decision={decisionResult.decision}
+          score={decisionResult.score}
+          confidencePenalty={usesFallbackData ? 1 : 0}
+          disallowHighConfidence={usesFallbackData}
+        />
 
-        {/* Live data status badge */}
-        {isLiveData ? (
+        {/* Data source status badge */}
+        {usesTodayData ? (
           <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
             <span className="text-green-500">✓</span>
             <p className="text-xs text-green-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               LIVE data (Agmarknet)
             </p>
           </div>
-        ) : (
+        ) : usesFallbackData ? (
           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
             <span className="text-amber-500">⚠</span>
             <p className="text-xs text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Estimated data (not live)
+              Latest available data (Agmarknet)
+            </p>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+            <span className="text-red-500">✕</span>
+            <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Data unavailable
             </p>
           </div>
         )}
@@ -178,18 +268,18 @@ https://mandimind.pages.dev/`;
           <div className="grid grid-cols-3 gap-2">
             {[
               { label: t.currentPriceLabel, value: formatPrice(currentPrice), accent: false },
-              { label: t.sevenDayLow,       value: formatRoundedPrice(priceRangeLow),  accent: "green" },
-              { label: t.fifteenDayHigh,    value: formatRoundedPrice(priceRangeHigh), accent: "yellow" },
+              { label: t.sevenDayLow, value: formatRoundedPrice(priceRangeLow), accent: "green" },
+              { label: t.fifteenDayHigh, value: formatRoundedPrice(priceRangeHigh), accent: "yellow" },
             ].map((item) => (
               <div key={item.label}
                 className={`rounded-xl p-3 text-center ${
-                  item.accent === "green"  ? "bg-green-50"  :
-                  item.accent === "yellow" ? "bg-yellow-50" : "bg-gray-50"
+                  item.accent === "green" ? "bg-green-50"
+                    : item.accent === "yellow" ? "bg-yellow-50" : "bg-gray-50"
                 }`}>
                 <p className="text-[10px] text-gray-400 mb-0.5">{item.label}</p>
                 <p className={`text-base font-extrabold ${
-                  item.accent === "green"  ? "text-green-700"  :
-                  item.accent === "yellow" ? "text-yellow-700" : "text-[#004c22]"
+                  item.accent === "green" ? "text-green-700"
+                    : item.accent === "yellow" ? "text-yellow-700" : "text-[#004c22]"
                 }`} style={{ fontFamily: "Manrope, sans-serif" }}>
                   {item.value}
                 </p>
@@ -201,22 +291,32 @@ https://mandimind.pages.dev/`;
           {/* Data source badge */}
           <div className="flex items-center justify-between border-t border-gray-50 pt-2">
             <span className="text-[10px] text-gray-400">
-              {isLiveData && liveLastUpdated ? `Updated: ${liveLastUpdated}` : "Estimated data (not live)"}
+              {usesTodayData
+                ? "Updated: Today"
+                : usesFallbackData
+                  ? `Date used: ${mandiDataStatus.usedDate} • Freshness: ${mandiDataStatus.freshnessDays} days old`
+                  : "Data unavailable"}
             </span>
             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-              isLiveData
+              usesTodayData
                 ? "text-green-600 bg-green-50"
-                : "text-amber-600 bg-amber-50"
+                : usesFallbackData
+                  ? "text-amber-600 bg-amber-50"
+                  : "text-red-600 bg-red-50"
             }`}>
-              {isLiveData ? "● LIVE data (Agmarknet)" : "● Estimated data (not live)"}
+              {usesTodayData
+                ? "● LIVE data (Agmarknet)"
+                : usesFallbackData
+                  ? "● Latest available data (Agmarknet)"
+                  : "● Data unavailable"}
             </span>
           </div>
 
-          {localResult.variantOffset !== 0 && variety && (
+          {decisionResult.variantOffset !== 0 && variety && (
             <div className="flex justify-between items-center pt-1 border-t border-gray-100">
               <span className="text-sm text-gray-500">{variety} premium</span>
-              <span className={`text-sm font-semibold ${localResult.variantOffset > 0 ? "text-green-600" : "text-red-600"}`}>
-                {localResult.variantOffset > 0 ? "+" : ""}₹{localResult.variantOffset.toLocaleString("en-IN")}
+              <span className={`text-sm font-semibold ${decisionResult.variantOffset > 0 ? "text-green-600" : "text-red-600"}`}>
+                {decisionResult.variantOffset > 0 ? "+" : ""}₹{decisionResult.variantOffset.toLocaleString("en-IN")}
               </span>
             </div>
           )}
@@ -238,12 +338,12 @@ https://mandimind.pages.dev/`;
           </h3>
           <div className="space-y-2">
             {[
-              { label: t.trendLabel,   value: localResult.explanation.trend },
-              { label: t.qualityLabel, value: localResult.explanation.quality },
-              { label: t.urgencyLabel, value: localResult.explanation.urgency },
-              { label: t.storageLabel, value: localResult.explanation.storage },
-              ...(localResult.explanation.variety
-                ? [{ label: variety, value: localResult.explanation.variety }]
+              { label: t.trendLabel, value: decisionResult.explanation.trend },
+              { label: t.qualityLabel, value: decisionResult.explanation.quality },
+              { label: t.urgencyLabel, value: decisionResult.explanation.urgency },
+              { label: t.storageLabel, value: decisionResult.explanation.storage },
+              ...(decisionResult.explanation.variety
+                ? [{ label: variety, value: decisionResult.explanation.variety }]
                 : []),
             ].map((item) => (
               <div key={item.label} className="flex items-start gap-2 py-1 border-b border-gray-50 last:border-0">
