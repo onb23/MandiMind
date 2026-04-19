@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getCropNames } from "../data/mockPrices";
 import { fetchCompare } from "../utils/api";
 import { shareResult } from "../utils/shareResult";
@@ -103,6 +103,7 @@ function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry,
 
 export default function Trade() {
   const cropList = getCropNames();
+  const defaultCropId = cropList[0]?.id || "onion";
   const [selectedCrop, setSelectedCrop] = useState(cropList[0]?.id || "onion");
   const [quantity, setQuantity] = useState(DEFAULT_QUANTITY);
   const [country, setCountry] = useState(COUNTRIES[0].id);
@@ -111,6 +112,7 @@ export default function Trade() {
   const [error, setError] = useState(null);
   const [mandis, setMandis] = useState([]);
   const [shareMessage, setShareMessage] = useState("");
+  const inputSectionRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -217,9 +219,21 @@ https://mandimind.pages.dev/trade`;
     window.setTimeout(() => setShareMessage(""), 2500);
   }
 
+  function handleCheckAnotherTrade() {
+    setSelectedCrop(defaultCropId);
+    setQuantity(DEFAULT_QUANTITY);
+    setCountry(COUNTRIES[0].id);
+    setShareMessage("");
+
+    inputSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
-      <div className="px-4 pt-6 pb-4">
+      <div ref={inputSectionRef} className="px-4 pt-6 pb-4">
         <h1
           className="text-2xl font-extrabold text-[#004c22] mb-3"
           style={{ fontFamily: "Manrope, sans-serif" }}
@@ -305,6 +319,9 @@ https://mandimind.pages.dev/trade`;
               </span>
             </p>
           </div>
+          <p className="text-[11px] text-green-100/90 mt-3">
+            ⚠️ Most traders lose money due to wrong timing. Check again tomorrow.
+          </p>
           {!canCalculate && <p className="text-xs text-green-100 mt-3">Calculation disabled until mandi data is available.</p>}
         </section>
 
@@ -366,6 +383,14 @@ https://mandimind.pages.dev/trade`;
           {shareMessage && (
             <p className="text-center text-xs text-gray-600">{shareMessage}</p>
           )}
+          <p className="text-center text-sm text-[#1e1c10]">👉 Try your crop or mandi and see if you're making profit</p>
+          <button
+            onClick={handleCheckAnotherTrade}
+            className="w-full bg-[#004c22] text-white font-bold py-3 rounded-xl active:scale-[0.98] transition-transform"
+            style={{ fontFamily: "Manrope, sans-serif", minHeight: "52px" }}
+          >
+            🔍 Check another trade
+          </button>
         </section>
       </div>
     </div>
