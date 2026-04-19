@@ -49,6 +49,12 @@ function getRecommendationDisplay(recommendation) {
   return "⚠️ WAIT";
 }
 
+function getConfidenceDescription(level) {
+  if (level === "HIGH") return "Strong profit margin with favorable conditions";
+  if (level === "MEDIUM") return "Moderate profit with stable conditions";
+  return "Low margin or high cost uncertainty";
+}
+
 function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry, quantity }) {
   if (!canCalculate) {
     return {
@@ -185,6 +191,7 @@ export default function Trade() {
 
   const profitTone = getProfitTone(calculations.profitPerKg);
   const recommendationText = getRecommendationDisplay(calculations.recommendation);
+  const confidenceDescription = getConfidenceDescription(calculations.confidenceLevel);
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
 
   async function handleShareTradeResult() {
@@ -292,10 +299,10 @@ https://mandimind.pages.dev/trade`;
           </p>
           <div className="mt-3 space-y-1">
             <p className="text-xs text-green-100">
-              Confidence Level: <span className="font-semibold text-white">{calculations.confidenceLevel}</span>
-            </p>
-            <p className="text-xs text-green-100">
-              Reason: <span className="font-semibold text-white">{calculations.reasonMessage}</span>
+              Confidence:{" "}
+              <span className="font-semibold text-white">
+                {calculations.confidenceLevel} ({confidenceDescription})
+              </span>
             </p>
           </div>
           {!canCalculate && <p className="text-xs text-green-100 mt-3">Calculation disabled until mandi data is available.</p>}
@@ -327,6 +334,10 @@ https://mandimind.pages.dev/trade`;
             <div className="flex justify-between"><span className="text-gray-500">Sell (Export Price)</span><span className="font-semibold">₹{calculations.exportPrice.toFixed(2)}/kg</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Cost</span><span className="font-semibold">₹{selectedCountry.cost.toFixed(2)}/kg</span></div>
             <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">Profit / kg</span><span className="font-bold text-[#004c22]">₹{calculations.profitPerKg.toFixed(2)}</span></div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-gray-100 space-y-1 text-[11px] text-gray-500">
+            <p>📡 Data Source: Agmarknet (Govt. of India)</p>
+            <p>🕒 Last Updated: Today</p>
           </div>
         </section>
 
