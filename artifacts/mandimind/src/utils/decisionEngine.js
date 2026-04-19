@@ -14,6 +14,47 @@ function norm(val) {
   return (val || "").toUpperCase().trim();
 }
 
+function getEstimatedImpact(trend) {
+  if (trend === "RISING") {
+    return {
+      summary: "+₹80–₹120 per quintal if trend continues",
+      direction: "positive",
+    };
+  }
+
+  if (trend === "FALLING") {
+    return {
+      summary: "-₹60–₹100 per quintal if decline continues",
+      direction: "negative",
+    };
+  }
+
+  return {
+    summary: "+₹10–₹30 per quintal with close monitoring",
+    direction: "neutral",
+  };
+}
+
+function getMainAndSecondaryRisk({ trend, storage, urgency, harvest }) {
+  const s = norm(storage);
+  const u = norm(urgency);
+  const h = norm(harvest);
+
+  const mainRisk = trend === "FALLING"
+    ? "Main risk: prices may slip further over the next 2–3 market sessions"
+    : s === "NO"
+      ? "Main risk: no storage may force a distress sale if mandi traffic increases"
+      : "Main risk: short-term volatility can reverse gains after sudden arrivals";
+
+  const secondaryRisk = (u === "NEED_MONEY" || u === "NEED MONEY")
+    ? "Secondary risk: urgent cash need reduces your negotiating power"
+    : h === "READY"
+      ? "Secondary risk: delayed sale can increase quality-loss exposure"
+      : "Secondary risk: waiting too long may miss a favorable local peak";
+
+  return { mainRisk, secondaryRisk };
+}
+
 export function getDecision(prices, inputs) {
   const { quality, harvest, storage, urgency, variety, cropId } = inputs;
 
@@ -104,6 +145,8 @@ export function getDecision(prices, inputs) {
     currentPrice,
     variantOffset,
     explanation,
+    estimatedImpact: getEstimatedImpact(trend),
+    risks: getMainAndSecondaryRisk({ trend, storage, urgency, harvest }),
     ma5:  ma5  ? Math.round(ma5)  : null,
     ma10: ma10 ? Math.round(ma10) : null,
   };

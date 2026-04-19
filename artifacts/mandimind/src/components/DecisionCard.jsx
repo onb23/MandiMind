@@ -9,7 +9,27 @@ function getConfidence(score, t, penalty = 0, disallowHigh = false) {
 
   if (disallowHigh && index === 2) index = 1;
   index = Math.max(0, index - Math.max(0, penalty));
-  return bands[index];
+  return { label: bands[index], level: index };
+}
+
+function getConfidenceReason({ score, confidenceLevel, hasFallbackData, decision }) {
+  if (decision === "NOT ENOUGH DATA") {
+    return "Low confidence because recent mandi records are unavailable.";
+  }
+
+  if (hasFallbackData) {
+    return "Medium confidence because latest available data is used instead of same-day live data.";
+  }
+
+  if (confidenceLevel === 2) {
+    return `High confidence because score is ${score}/100 with aligned trend and farmer inputs.`;
+  }
+
+  if (confidenceLevel === 1) {
+    return `Medium confidence because score is ${score}/100 and some market signals are mixed.`;
+  }
+
+  return `Low confidence because score is ${score}/100 and conditions favor immediate action.`;
 }
 
 export default function DecisionCard({
@@ -49,10 +69,19 @@ export default function DecisionCard({
 
   const c = config[decision] || config.HOLD;
   const confidence = getConfidence(score, t, confidencePenalty, disallowHighConfidence);
+  const confidenceReason = getConfidenceReason({
+    score,
+    confidenceLevel: confidence.level,
+    hasFallbackData: confidencePenalty > 0,
+    decision,
+  });
 
   return (
     <div className={`${c.bg} rounded-2xl p-6 text-white shadow-xl ${c.glow}`}>
       <div className="space-y-2">
+        <p className="text-xs uppercase tracking-[0.12em] opacity-80">
+          {t.recommendedAction || "Recommended action"}
+        </p>
         <div
           className="text-4xl font-extrabold leading-none"
           style={{ fontFamily: "Manrope, sans-serif" }}
@@ -69,10 +98,13 @@ export default function DecisionCard({
 
       <div className="mt-5 bg-white/15 rounded-xl py-2 px-3 text-center">
         <span className="text-xs tracking-wide opacity-80">
-          {(t.confidence || "CONFIDENCE").toUpperCase()}:{" "}
+          {(t.confidence || "CONFIDENCE").toUpperCase()}: {" "}
         </span>
-        <span className="text-sm font-bold tracking-wide">{confidence}</span>
+        <span className="text-sm font-bold tracking-wide">{confidence.label}</span>
       </div>
+      <p className="text-xs mt-2 opacity-90" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+        {confidenceReason}
+      </p>
     </div>
   );
 }
