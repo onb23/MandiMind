@@ -42,8 +42,7 @@ export default function Home() {
     setSelectedMandi(mandi);
   };
 
-  const safeErrorMessage =
-    "Live mandi data is temporarily unavailable. Please try again in a few minutes.";
+  const safeErrorMessage = t.liveMandiTemporarilyUnavailable;
 
   const jumpToCropSelector = () => {
     const cropField = document.getElementById("crop-selector");
@@ -52,28 +51,27 @@ export default function Home() {
     }
   };
 
-  const snapshotCrops = ["Onion", "Tomato", "Soybean"];
+  const snapshotCrops = [t.onionLabel, t.tomatoLabel, t.soybeanLabel];
   const snapshotComparison = [
-    { mandi: "Lasalgaon", crop: "Onion", modalPrice: "₹2,350/qtl", trend: "+4%" },
-    { mandi: "Pune", crop: "Tomato", modalPrice: "₹1,780/qtl", trend: "-2%" },
+    { mandi: "Lasalgaon", crop: t.onionLabel, modalPrice: "₹2,350/qtl", trend: "+4%" },
+    { mandi: "Pune", crop: t.tomatoLabel, modalPrice: "₹1,780/qtl", trend: "-2%" },
   ];
   const snapshotRecommendation = {
     action: "HOLD",
-    confidenceLabel: "High",
+    confidenceLabel: t.high,
     confidencePercent: 82,
-    guidance:
-      "Hold your current lots and monitor daily arrivals. Market signals currently favor a better selling window rather than immediate disposal.",
-    timeframe: "Recommended window: wait 2–3 days before re-evaluating sale timing.",
+    guidance: t.snapshotGuidance,
+    timeframe: t.snapshotTimeframe,
     reasons: [
-      "Onion modal prices are trending upward across major mandis this week.",
-      "Price spread between nearby mandis is stable, indicating low short-term downside risk.",
+      t.snapshotReason1,
+      t.snapshotReason2,
     ],
     risks: [
-      "A sudden jump in mandi arrivals can flatten gains and reduce bargaining power.",
-      "Transport disruptions may temporarily delay access to the best-paying mandi.",
+      t.snapshotRisk1,
+      t.snapshotRisk2,
     ],
     updatedAt: "19 Apr 2026, 09:30 AM",
-    source: "Agmarknet",
+    source: t.agmarknet,
   };
   const actionStyles = {
     SELL: "bg-green-100 text-green-700 border-green-200",
@@ -166,7 +164,7 @@ export default function Home() {
         <div className="mt-2 inline-flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-full px-3 py-1">
           <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
           <span className="text-xs text-green-700 font-medium" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            Maharashtra · Live Agmarknet Data
+            {t.maharashtraLiveAgmarknetData}
           </span>
         </div>
       </div>
@@ -178,16 +176,16 @@ export default function Home() {
               className="text-base font-extrabold text-[#004c22]"
               style={{ fontFamily: "Manrope, sans-serif" }}
             >
-              Today&apos;s Mandi Snapshot
+              {t.todayMandiSnapshot}
             </h2>
             <p className="text-xs text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Preview insights before selecting crop and mandi.
+              {t.previewBeforeSelection}
             </p>
           </div>
 
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#1e1c10] mb-1.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Example crops
+              {t.exampleCrops}
             </p>
             <div className="flex flex-wrap gap-2">
               {snapshotCrops.map((crop) => (
@@ -204,7 +202,7 @@ export default function Home() {
 
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#1e1c10] mb-1.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Sample mandi comparison
+              {t.sampleMandiComparison}
             </p>
             <div className="space-y-2">
               {snapshotComparison.map((row) => (
@@ -217,7 +215,7 @@ export default function Home() {
                       {row.mandi} · {row.crop}
                     </p>
                     <p className="text-xs text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                      Modal price: {row.modalPrice}
+                      {t.modalPriceLabel}: {row.modalPrice}
                     </p>
                   </div>
                   <span className={`text-xs font-bold ${row.trend.startsWith("+") ? "text-green-600" : "text-red-600"}`}>
@@ -232,10 +230,10 @@ export default function Home() {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[#1e1c10]" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  Recommendation snapshot
+                  {t.recommendationSnapshot}
                 </p>
                 <p className="text-[10px] text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  Demo Snapshot
+                  {t.demoSnapshot}
                 </p>
               </div>
               <span
@@ -249,17 +247,17 @@ export default function Home() {
             <div className="mt-2 rounded-md bg-white/70 border border-white px-2.5 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[11px] font-semibold text-[#1e1c10]" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  Advisor guidance
+                  {t.advisorGuidance}
                 </p>
                 <span className="inline-flex items-center gap-1 rounded-full bg-[#e8f5ec] border border-[#cde8d6] px-2 py-0.5 text-[10px] font-semibold text-[#004c22]">
-                  Confidence: {snapshotRecommendation.confidenceLabel} ({snapshotRecommendation.confidencePercent}%)
+                  {t.confidence}: {snapshotRecommendation.confidenceLabel} ({snapshotRecommendation.confidencePercent}%)
                 </span>
               </div>
               <p className="text-xs text-gray-700 mt-1.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                 {snapshotRecommendation.guidance}
               </p>
               <p className="text-[11px] font-semibold text-[#1e1c10] mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                Why now
+                {t.whyNow}
               </p>
               <ul className="list-disc pl-4 space-y-1">
                 {snapshotRecommendation.reasons.map((reason) => (
@@ -273,7 +271,7 @@ export default function Home() {
                 ))}
               </ul>
               <p className="text-[11px] font-semibold text-[#1e1c10] mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                Risk
+                {t.riskLabel}
               </p>
               <ul className="list-disc pl-4 space-y-1">
                 {snapshotRecommendation.risks.map((risk) => (
@@ -297,20 +295,20 @@ export default function Home() {
                 className="w-full rounded-lg border border-[#004c22] bg-white px-3 py-2 text-xs font-semibold text-[#004c22] active:scale-[0.98] transition-transform"
                 style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
               >
-                Check your crop
+                {t.checkYourCrop}
               </button>
               <button
                 onClick={jumpToCropSelector}
                 className="w-full rounded-lg border border-[#004c22] bg-[#004c22] px-3 py-2 text-xs font-semibold text-white active:scale-[0.98] transition-transform"
                 style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
               >
-                Get personalized recommendation
+                {t.getPersonalizedRecommendation}
               </button>
             </div>
 
             <div className="mt-2 flex items-center justify-between text-[10px] text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              <span>Last updated: {snapshotRecommendation.updatedAt}</span>
-              <span className="font-semibold text-[#004c22]">Source: {snapshotRecommendation.source}</span>
+              <span>{t.lastUpdatedPrefix}: {snapshotRecommendation.updatedAt}</span>
+              <span className="font-semibold text-[#004c22]">{t.sourceLabel}: {snapshotRecommendation.source}</span>
             </div>
           </div>
         </section>
@@ -341,13 +339,13 @@ export default function Home() {
           {!cropLoading && cropError && (
             <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                We could not refresh crop availability right now. {safeErrorMessage}
+                {t.cropAvailabilityRefreshFailed} {safeErrorMessage}
               </p>
             </div>
           )}
           {!cropLoading && !cropError && cropList.length === 0 && (
             <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              No crops with usable data in the last 3 days.
+              {t.noCropsUsableLast3Days}
             </p>
           )}
         </div>
@@ -366,23 +364,25 @@ export default function Home() {
             className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3.5 text-base text-[#1e1c10] outline-none focus:border-[#004c22] disabled:opacity-50"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
-            <option value="">{selectedCrop ? (mandiLoading ? "Loading live mandis…" : t.selectMandi) : "— Select crop first —"}</option>
+            <option value="">
+              {selectedCrop ? (mandiLoading ? t.loadingLiveMandis : t.selectMandi) : t.selectCropFirst}
+            </option>
             {visibleMandis.map((item) => (
               <option key={item.mandi} value={item.mandi}>
-                {item.mandi}{item.bucket === "latest_available" ? ` (${item.freshnessDays}d old)` : ""}
+                {item.mandi}{item.bucket === "latest_available" ? ` (${t.dayShortOld.replace("{days}", item.freshnessDays)})` : ""}
               </option>
             ))}
           </select>
           {selectedCrop && !mandiLoading && mandiError && (
             <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                Live mandi listings could not be updated. {mandiError}
+                {t.liveMandiListingsUpdateFailed} {mandiError}
               </p>
             </div>
           )}
           {selectedCrop && !mandiLoading && !mandiError && visibleMandis.length === 0 && (
             <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              No usable mandi data available right now for this crop.
+              {t.noUsableMandiDataForCrop}
             </p>
           )}
         </div>
@@ -411,7 +411,7 @@ export default function Home() {
               {t.comparison}
             </p>
             <p className="text-xs text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Compare prices across all Maharashtra mandis with live data.
+              {t.comparePricesAcrossMaharashtra}
             </p>
           </div>
           <button
@@ -432,7 +432,7 @@ export default function Home() {
               {t.forecast}
             </p>
             <p className="text-xs text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              30-day price history chart from Agmarknet.
+              {t.priceHistoryChartFromAgmarknet}
             </p>
           </div>
           <button
@@ -445,7 +445,7 @@ export default function Home() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-          Maharashtra only · Agmarknet data (today + last 3 days)
+          {t.maharashtraOnlyAgmarknet}
         </p>
       </div>
     </div>
