@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
+import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
 
 export default function Comparison() {
@@ -57,25 +57,23 @@ export default function Comparison() {
   }, [selectedCrop]);
 
   const mandis = compareData?.mandis || [];
+  const modeMandis = getMandisForPriceMode(mandis, compareMode);
   const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
   const sortFn = (a, b) => {
-    const byPrice = scorePrice(b.todayPrice) - scorePrice(a.todayPrice);
+    const byPrice = scorePrice(b.modePrice) - scorePrice(a.modePrice);
     if (byPrice !== 0) return byPrice;
-    const freshnessRank = (bucket) => (bucket === "live_today" ? 0 : 1);
-    const byFreshness = freshnessRank(a.bucket) - freshnessRank(b.bucket);
+    const byFreshness = (a.modeFreshnessDays ?? 999) - (b.modeFreshnessDays ?? 999);
     if (byFreshness !== 0) return byFreshness;
     return a.mandi.localeCompare(b.mandi);
   };
-  const liveTodayMandis = mandis.filter((item) => item.bucket === "live_today").sort(sortFn);
-  const latestModeMandis = [...mandis].sort(sortFn);
-  const displayedMandis = compareMode === "today" ? liveTodayMandis : latestModeMandis;
+  const displayedMandis = [...modeMandis].sort(sortFn);
   const bestMandi = displayedMandis[0] || null;
   const bestLabel = bestMandi
-    ? bestMandi.bucket === "live_today"
+    ? compareMode === "today"
       ? t.comparisonBestPriceToday
       : t.comparisonBestLatestPrice
     : "";
-  const lastUpdated = compareData?.lastUpdated || liveTodayMandis[0]?.lastUpdated || mandis[0]?.lastUpdated;
+  const lastUpdated = compareData?.lastUpdated || displayedMandis[0]?.lastUpdated || mandis[0]?.lastUpdated;
   const comparableMandis = displayedMandis.filter(
     (item) => Number.isFinite(item.todayPrice) && Number.isFinite(item.avgPrice)
   );
@@ -188,9 +186,11 @@ export default function Comparison() {
         {!loading && !error && mandis.length > 0 && displayedMandis.length === 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
             <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {t.comparisonNoTodayMandis}
+              {compareMode === "today" ? t.comparisonNoTodayMandis : t.comparisonNoRecentMandis}
             </p>
-            <p className="text-xs text-amber-500 mt-1">{t.comparisonTryLatestMode}</p>
+            <p className="text-xs text-amber-500 mt-1">
+              {compareMode === "today" ? t.comparisonTryLatestMode : t.comparisonTryTodayMode}
+            </p>
           </div>
         )}
 
@@ -218,7 +218,7 @@ export default function Comparison() {
                   {bestLabel}:
                 </span>
                 <span className="text-[#feb234] font-bold text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  {bestMandi.mandi} — {bestMandi.todayPrice > 0 ? `₹${bestMandi.todayPrice.toLocaleString("en-IN")}` : "—"}
+                  {bestMandi.mandi} — {bestMandi.modePrice > 0 ? `₹${bestMandi.modePrice.toLocaleString("en-IN")}` : "—"}
                 </span>
               </div>
             )}
@@ -236,18 +236,16 @@ export default function Comparison() {
                     <MandiCard
                       key={`${compareMode}-${item.mandi}`}
                       mandi={item.mandi}
-                      todayPrice={item.todayPrice}
+                      todayPrice={item.modePrice}
                       avgPrice={item.avgPrice}
-                      lastUpdated={item.lastUpdated}
-                      stale={compareMode === "latest" && item.bucket === "latest_available"}
-                      freshnessDays={item.freshnessDays}
+                      lastUpdated={item.modeDate || item.lastUpdated}
+                      stale={compareMode === "latest"}
+                      freshnessDays={item.modeFreshnessDays}
                       freshnessText={
                         compareMode === "today"
                           ? t.today
-                          : item.bucket === "live_today"
-                            ? t.today
-                            : item.freshnessDays
-                              ? (item.freshnessDays === 1 ? t.dayOld : t.daysOld).replace("{days}", item.freshnessDays)
+                          : item.modeFreshnessDays
+                            ? (item.modeFreshnessDays === 1 ? t.dayOld : t.daysOld).replace("{days}", item.modeFreshnessDays)
                               : t.latestAvailable
                       }
                       isBest={idx === 0}

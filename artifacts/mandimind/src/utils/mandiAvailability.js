@@ -10,6 +10,10 @@ export const DATA_FRESHNESS = {
   RECENT: "RECENT",
   STALE: "STALE",
 };
+export const PRICE_MODE = {
+  TODAY: "today",
+  RECENT: "latest",
+};
 
 export function parseArrivalDate(dateStr) {
   if (!dateStr || typeof dateStr !== "string") return null;
@@ -250,6 +254,23 @@ export async function fetchClassifiedMandis(cropId, state = "Maharashtra", optio
 
 export function getUsableMandis(mandis = []) {
   return mandis.filter((item) => item?.isUsable);
+}
+
+export function getMandisForPriceMode(mandis = [], mode = PRICE_MODE.TODAY) {
+  const isTodayMode = mode === PRICE_MODE.TODAY;
+  return (mandis ?? [])
+    .map((item) => {
+      const modeOption = isTodayMode ? item?.todayOption : item?.latestOption;
+      if (!modeOption?.isUsable) return null;
+      return {
+        ...item,
+        mode,
+        modePrice: modeOption.price,
+        modeDate: modeOption.date,
+        modeFreshnessDays: modeOption.freshnessDays,
+      };
+    })
+    .filter(Boolean);
 }
 
 export function splitMandisByFreshness(mandis = []) {
