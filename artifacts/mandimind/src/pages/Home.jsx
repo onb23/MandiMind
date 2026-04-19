@@ -45,6 +45,13 @@ export default function Home() {
   const safeErrorMessage =
     "Live mandi data is temporarily unavailable. Please try again in a few minutes.";
 
+  const jumpToCropSelector = () => {
+    const cropField = document.getElementById("crop-selector");
+    if (cropField) {
+      cropField.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
   const snapshotCrops = ["Onion", "Tomato", "Soybean"];
   const snapshotComparison = [
     { mandi: "Lasalgaon", crop: "Onion", modalPrice: "₹2,350/qtl", trend: "+4%" },
@@ -52,10 +59,18 @@ export default function Home() {
   ];
   const snapshotRecommendation = {
     action: "HOLD",
+    confidenceLabel: "High",
+    confidencePercent: 82,
+    guidance:
+      "Hold your current lots and monitor daily arrivals. Market signals currently favor a better selling window rather than immediate disposal.",
+    timeframe: "Recommended window: wait 2–3 days before re-evaluating sale timing.",
     reasons: [
       "Onion modal prices are trending upward across major mandis this week.",
       "Price spread between nearby mandis is stable, indicating low short-term downside risk.",
-      "Waiting 2–3 days may improve returns if the rising trend continues.",
+    ],
+    risks: [
+      "A sudden jump in mandi arrivals can flatten gains and reduce bargaining power.",
+      "Transport disruptions may temporarily delay access to the best-paying mandi.",
     ],
     updatedAt: "19 Apr 2026, 09:30 AM",
     source: "Agmarknet",
@@ -232,8 +247,19 @@ export default function Home() {
             </div>
 
             <div className="mt-2 rounded-md bg-white/70 border border-white px-2.5 py-2">
-              <p className="text-[11px] font-semibold text-[#1e1c10] mb-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                Why this action
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold text-[#1e1c10]" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                  Advisor guidance
+                </p>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#e8f5ec] border border-[#cde8d6] px-2 py-0.5 text-[10px] font-semibold text-[#004c22]">
+                  Confidence: {snapshotRecommendation.confidenceLabel} ({snapshotRecommendation.confidencePercent}%)
+                </span>
+              </div>
+              <p className="text-xs text-gray-700 mt-1.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {snapshotRecommendation.guidance}
+              </p>
+              <p className="text-[11px] font-semibold text-[#1e1c10] mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                Why now
               </p>
               <ul className="list-disc pl-4 space-y-1">
                 {snapshotRecommendation.reasons.map((reason) => (
@@ -246,6 +272,40 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+              <p className="text-[11px] font-semibold text-[#1e1c10] mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                Risk
+              </p>
+              <ul className="list-disc pl-4 space-y-1">
+                {snapshotRecommendation.risks.map((risk) => (
+                  <li
+                    key={risk}
+                    className="text-xs text-gray-600"
+                    style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+                  >
+                    {risk}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs font-medium text-[#004c22] mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {snapshotRecommendation.timeframe}
+              </p>
+            </div>
+
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                onClick={jumpToCropSelector}
+                className="w-full rounded-lg border border-[#004c22] bg-white px-3 py-2 text-xs font-semibold text-[#004c22] active:scale-[0.98] transition-transform"
+                style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+              >
+                Check your crop
+              </button>
+              <button
+                onClick={jumpToCropSelector}
+                className="w-full rounded-lg border border-[#004c22] bg-[#004c22] px-3 py-2 text-xs font-semibold text-white active:scale-[0.98] transition-transform"
+                style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+              >
+                Get personalized recommendation
+              </button>
             </div>
 
             <div className="mt-2 flex items-center justify-between text-[10px] text-gray-500" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
@@ -255,7 +315,7 @@ export default function Home() {
           </div>
         </section>
 
-        <div>
+        <div id="crop-selector">
           <label
             className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-1.5"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
