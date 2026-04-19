@@ -8,6 +8,48 @@ export const CROP_DATA = {
     varieties: ["Lal", "Safed", "N-53", "Export Quality"],
     mandis: ["Lasalgaon", "Pimpalgaon Baswant", "Yeola", "Sinnar", "Manmad"],
   },
+  potato: {
+    name: "Potato / बटाटा",
+    marathiName: "बटाटा",
+    varieties: ["Jyoti", "Kufri", "Local"],
+    mandis: ["Pune", "Nashik", "Ahmednagar"],
+  },
+  green_chilli: {
+    name: "Green Chilli / हिरवी मिरची",
+    marathiName: "हिरवी मिरची",
+    varieties: ["Teja", "Hybrid", "Local"],
+    mandis: ["Pune", "Kolhapur", "Nashik"],
+  },
+  grapes: {
+    name: "Grapes / द्राक्षे",
+    marathiName: "द्राक्षे",
+    varieties: ["Thompson", "Sonaka", "Sharad Seedless"],
+    mandis: ["Nashik", "Sangli", "Pune"],
+  },
+  pomegranate: {
+    name: "Pomegranate / डाळिंब",
+    marathiName: "डाळिंब",
+    varieties: ["Bhagawa", "Ganesh", "Mridula"],
+    mandis: ["Solapur", "Ahmednagar", "Pune"],
+  },
+  mango: {
+    name: "Mango / आंबा",
+    marathiName: "आंबा",
+    varieties: ["Alphonso", "Kesar", "Totapuri"],
+    mandis: ["Ratnagiri", "Pune", "Mumbai"],
+  },
+  banana: {
+    name: "Banana / केळी",
+    marathiName: "केळी",
+    varieties: ["Grand Naine", "Robusta", "Yelakki"],
+    mandis: ["Jalgaon", "Nashik", "Pune"],
+  },
+  rice: {
+    name: "Rice / तांदूळ",
+    marathiName: "तांदूळ",
+    varieties: ["Sona Masuri", "Basmati", "Indrayani"],
+    mandis: ["Nagpur", "Nanded", "Latur"],
+  },
   soybean: {
     name: "Soybean / सोयाबीन",
     marathiName: "सोयाबीन",

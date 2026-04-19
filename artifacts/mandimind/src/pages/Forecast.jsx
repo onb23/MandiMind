@@ -6,6 +6,12 @@ const COUNTRIES = [
   { id: "UAE", name: "UAE", multiplier: 1.8, cost: 6 },
   { id: "Bangladesh", name: "Bangladesh", multiplier: 1.4, cost: 4 },
   { id: "Sri Lanka", name: "Sri Lanka", multiplier: 1.3, cost: 5 },
+  { id: "Saudi Arabia", name: "Saudi Arabia", multiplier: 1.7, cost: 5.5 },
+  { id: "Oman", name: "Oman", multiplier: 1.55, cost: 5.2 },
+  { id: "Malaysia", name: "Malaysia", multiplier: 1.65, cost: 5.8 },
+  { id: "Nepal", name: "Nepal", multiplier: 1.35, cost: 3.8 },
+  { id: "Iraq", name: "Iraq", multiplier: 1.6, cost: 5.6 },
+  { id: "UK", name: "UK", multiplier: 2, cost: 8 },
 ];
 
 const DEFAULT_QUANTITY = 1000;
@@ -71,9 +77,10 @@ export default function Forecast() {
   }, [selectedCrop]);
 
   const selectedCountry = COUNTRIES.find((c) => c.id === country) || COUNTRIES[0];
-  const baseMandiPrice = mandis[0]?.todayPrice ?? null;
+  const baseMandiPricePerQuintal = mandis[0]?.todayPrice ?? null;
+  const baseMandiPricePerKg = baseMandiPricePerQuintal !== null ? baseMandiPricePerQuintal / 100 : null;
   const safeQuantity = Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? Number(quantity) : 0;
-  const canCalculate = baseMandiPrice !== null && safeQuantity > 0 && !loading && !error;
+  const canCalculate = baseMandiPricePerKg !== null && safeQuantity > 0 && !loading && !error;
 
   const calculations = useMemo(() => {
     if (!canCalculate) {
@@ -86,10 +93,10 @@ export default function Forecast() {
       };
     }
 
-    const exportPrice = baseMandiPrice * selectedCountry.multiplier;
-    const profitPerKg = exportPrice - baseMandiPrice - selectedCountry.cost;
+    const exportPrice = baseMandiPricePerKg * selectedCountry.multiplier;
+    const profitPerKg = exportPrice - baseMandiPricePerKg - selectedCountry.cost;
     const totalProfit = profitPerKg * safeQuantity;
-    const profitPercent = baseMandiPrice > 0 ? (profitPerKg / baseMandiPrice) * 100 : 0;
+    const profitPercent = baseMandiPricePerKg > 0 ? (profitPerKg / baseMandiPricePerKg) * 100 : 0;
 
     let recommendation = "WAIT";
     if (profitPerKg > 4) recommendation = "EXPORT";
@@ -102,7 +109,7 @@ export default function Forecast() {
       profitPercent,
       recommendation,
     };
-  }, [canCalculate, baseMandiPrice, selectedCountry, safeQuantity]);
+  }, [canCalculate, baseMandiPricePerKg, selectedCountry, safeQuantity]);
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -196,7 +203,7 @@ export default function Forecast() {
               {mandis.map((mandi, index) => (
                 <div key={`${mandi.mandi}-${index}`} className="flex justify-between items-center bg-[#f8fafc] rounded-lg px-3 py-2">
                   <p className="text-sm font-medium text-[#1e1c10]">{index + 1}. {mandi.mandi}</p>
-                  <p className="text-sm font-bold text-[#004c22]">₹{mandi.todayPrice.toLocaleString("en-IN")}</p>
+                  <p className="text-sm font-bold text-[#004c22]">₹{mandi.todayPrice.toLocaleString("en-IN")}/quintal (₹{(mandi.todayPrice / 100).toFixed(2)}/kg)</p>
                 </div>
               ))}
             </div>
@@ -206,7 +213,7 @@ export default function Forecast() {
         <section className="bg-white border border-gray-200 rounded-xl p-4">
           <h2 className="text-base font-bold text-[#1e1c10] mb-3">Trade Breakdown</h2>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Buy (Mandi Price)</span><span className="font-semibold">₹{baseMandiPrice?.toFixed(2) ?? "0.00"}/kg</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Buy (Mandi Price)</span><span className="font-semibold">₹{baseMandiPricePerQuintal?.toFixed(2) ?? "0.00"}/quintal (₹{baseMandiPricePerKg?.toFixed(2) ?? "0.00"}/kg)</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Sell (Export Price)</span><span className="font-semibold">₹{calculations.exportPrice.toFixed(2)}/kg</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Cost</span><span className="font-semibold">₹{selectedCountry.cost.toFixed(2)}/kg</span></div>
             <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">Profit / kg</span><span className="font-bold text-[#004c22]">₹{calculations.profitPerKg.toFixed(2)}</span></div>
