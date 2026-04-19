@@ -58,6 +58,7 @@ export default function Comparison() {
 
   const mandis = compareData?.mandis || [];
   const modeMandis = getMandisForPriceMode(mandis, compareMode);
+  const todayMandiCount = mandis.filter((item) => item?.todayOption?.isUsable).length;
   const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
   const sortFn = (a, b) => {
     const byPrice = scorePrice(b.modePrice) - scorePrice(a.modePrice);
@@ -103,6 +104,14 @@ export default function Comparison() {
     wait: t.comparisonInsightWait,
     neutral: t.comparisonInsightNeutral,
   };
+  const showTodayUpdatingNote = compareMode === "today"
+    && !loading
+    && !error
+    && mandis.length > 0
+    && todayMandiCount < mandis.length;
+  const recentModeDate = compareMode === "latest"
+    ? displayedMandis[0]?.modeDate || null
+    : null;
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -153,6 +162,22 @@ export default function Comparison() {
             {t.priceTypeLatest}
           </button>
         </div>
+        {!loading && !error && (showTodayUpdatingNote || compareMode === "latest") && (
+          <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
+            {showTodayUpdatingNote && (
+              <p className="text-xs text-blue-800" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {t.todayModeUpdatingNote}
+              </p>
+            )}
+            {compareMode === "latest" && (
+              <p className={`text-xs ${recentModeDate ? "text-blue-800" : "text-blue-600"}`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {recentModeDate
+                  ? t.recentModeDateNoteCompare.replace("{date}", recentModeDate)
+                  : t.recentModeDateUnavailable}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="px-4">

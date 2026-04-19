@@ -32,6 +32,22 @@ export default function Home() {
   const visibleMandis = useMemo(() => {
     return getMandisForPriceMode(mandiOptions, priceType);
   }, [mandiOptions, priceType]);
+  const todayMandiCount = useMemo(
+    () => mandiOptions.filter((item) => item?.todayOption?.isUsable).length,
+    [mandiOptions]
+  );
+  const selectedRecentDate = useMemo(() => {
+    if (priceType !== "latest") return null;
+    const selected = mandiOptions.find((item) => item.mandi === selectedMandi);
+    if (selected?.latestOption?.date) return selected.latestOption.date;
+    return visibleMandis[0]?.modeDate || null;
+  }, [mandiOptions, selectedMandi, priceType, visibleMandis]);
+  const showTodayUpdatingNote = selectedCrop
+    && !mandiLoading
+    && !mandiError
+    && priceType === "today"
+    && mandiOptions.length > 0
+    && todayMandiCount < mandiOptions.length;
 
   const handleCropChange = (cropId) => {
     setSelectedCrop(cropId);
@@ -261,6 +277,22 @@ export default function Home() {
                   {t.priceTypeLatest}
                 </button>
               </div>
+            </div>
+          )}
+          {selectedCrop && !mandiLoading && !mandiError && (showTodayUpdatingNote || priceType === "latest") && (
+            <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+              {showTodayUpdatingNote && (
+                <p className="text-xs text-blue-800" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                  {t.todayModeUpdatingNote}
+                </p>
+              )}
+              {priceType === "latest" && (
+                <p className={`text-xs ${selectedRecentDate ? "text-blue-800" : "text-blue-600"}`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                  {selectedRecentDate
+                    ? t.recentModeDateNote.replace("{date}", selectedRecentDate)
+                    : t.recentModeDateUnavailable}
+                </p>
+              )}
             </div>
           )}
           <label

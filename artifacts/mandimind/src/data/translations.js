@@ -208,6 +208,10 @@ const translations = {
     comparisonTrendUpVsAvg: "▲ Up vs 7d avg",
     comparisonTrendDownVsAvg: "▼ Down vs 7d avg",
     comparisonTrendFlatVsAvg: "• Flat vs 7d avg",
+    todayModeUpdatingNote: "Today’s mandi data is still being updated. Some mandis may show limited or no prices right now.",
+    recentModeDateNote: "Recent mode is showing data from: {date}",
+    recentModeDateNoteCompare: "Recent mode uses each mandi’s latest available date. Example shown: {date}",
+    recentModeDateUnavailable: "Recent mode date will appear once mandi data is available.",
   },
   hi: {
     title: "मंडीमाइंड",
@@ -418,6 +422,10 @@ const translations = {
     comparisonTrendUpVsAvg: "▲ 7-दिन औसत से ऊपर",
     comparisonTrendDownVsAvg: "▼ 7-दिन औसत से नीचे",
     comparisonTrendFlatVsAvg: "• 7-दिन औसत के बराबर",
+    todayModeUpdatingNote: "आज का मंडी डेटा अभी अपडेट हो रहा है। कुछ मंडियों में अभी सीमित या कोई भाव नहीं दिख सकता।",
+    recentModeDateNote: "हाल मोड में दिखाई जा रही तारीख: {date}",
+    recentModeDateNoteCompare: "हाल मोड में हर मंडी की नवीनतम उपलब्ध तारीख उपयोग होती है। उदाहरण: {date}",
+    recentModeDateUnavailable: "मंडी डेटा उपलब्ध होते ही हाल मोड की तारीख यहाँ दिखेगी।",
   },
   mr: {
     title: "मंडीमाइंड",
@@ -628,6 +636,10 @@ const translations = {
     comparisonTrendUpVsAvg: "▲ 7-दिवस सरासरीपेक्षा जास्त",
     comparisonTrendDownVsAvg: "▼ 7-दिवस सरासरीपेक्षा कमी",
     comparisonTrendFlatVsAvg: "• 7-दिवस सरासरीएवढाच",
+    todayModeUpdatingNote: "आजचा मंडी डेटा अजून अपडेट होत आहे. काही मंड्यांमध्ये सध्या मर्यादित किंवा भाव दिसणार नाहीत.",
+    recentModeDateNote: "अलीकडील मोडमध्ये दाखवलेली तारीख: {date}",
+    recentModeDateNoteCompare: "अलीकडील मोडमध्ये प्रत्येक मंडीची नवीनतम उपलब्ध तारीख वापरली जाते. उदाहरण: {date}",
+    recentModeDateUnavailable: "मंडी डेटा उपलब्ध होताच अलीकडील मोडची तारीख येथे दिसेल.",
   },
 };
 
