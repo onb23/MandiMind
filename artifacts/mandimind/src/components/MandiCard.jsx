@@ -5,6 +5,23 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
 
   const displayPrice = todayPrice > 0 ? `₹${todayPrice.toLocaleString("en-IN")}` : "—";
   const displayAvg   = avgPrice   > 0 ? `₹${avgPrice.toLocaleString("en-IN")}`   : "—";
+  const trendDelta = Number.isFinite(todayPrice) && Number.isFinite(avgPrice) ? todayPrice - avgPrice : null;
+  const trendDirection =
+    trendDelta === null
+      ? null
+      : trendDelta > 0
+        ? "up"
+        : trendDelta < 0
+          ? "down"
+          : "flat";
+  const trendLabel =
+    trendDirection === "up"
+      ? "▲ Up vs 7d avg"
+      : trendDirection === "down"
+        ? "▼ Down vs 7d avg"
+        : trendDirection === "flat"
+          ? "• Flat vs 7d avg"
+          : null;
 
   return (
     <div
@@ -74,6 +91,21 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
       {lastUpdated && (
         <p className="text-[10px] text-gray-300 mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
           {t.lastUpdatedPrefix} {lastUpdated}
+        </p>
+      )}
+
+      {trendLabel && (
+        <p
+          className={`text-[11px] mt-1 font-medium ${
+            trendDirection === "up"
+              ? "text-green-600"
+              : trendDirection === "down"
+                ? "text-red-500"
+                : "text-gray-500"
+          }`}
+          style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+        >
+          {trendLabel}
         </p>
       )}
     </div>
