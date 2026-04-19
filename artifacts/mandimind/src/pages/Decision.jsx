@@ -4,6 +4,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { getCropById } from "../data/mockPrices";
 import { getDecision } from "../utils/decisionEngine";
 import { fetchPrices, fetchCompare } from "../utils/api";
+import { shareResult } from "../utils/shareResult";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
 
@@ -11,6 +12,7 @@ export default function Decision() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [shareMessage, setShareMessage] = useState("");
 
   const cropId   = searchParams.get("crop")     || "onion";
   const mandi    = searchParams.get("mandi")    || "";
@@ -96,6 +98,29 @@ export default function Decision() {
   const totalValue = Number(quantity) > 0 && currentPrice
     ? `₹${(currentPrice * Number(quantity)).toLocaleString("en-IN")}`
     : null;
+
+  async function handleShareDecision() {
+    const shareText = `MandiMind Mandi Decision
+
+Crop: ${cropInfo.name.split(" / ")[0]}
+Mandi: ${mandi}
+Current Price: ${currentPrice ? `₹${currentPrice.toLocaleString("en-IN")}` : "N/A"}
+Decision: ${localResult.decision}
+Reason: ${localResult.explanation?.trend || "N/A"}
+
+Check on MandiMind:
+https://mandimind.pages.dev/`;
+
+    const result = await shareResult({
+      title: "MandiMind Mandi Decision",
+      text: shareText,
+      url: "https://mandimind.pages.dev/",
+      fallbackSuccessMessage: "Result copied to clipboard",
+    });
+
+    setShareMessage(result.message);
+    window.setTimeout(() => setShareMessage(""), 2500);
+  }
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -283,6 +308,19 @@ export default function Decision() {
           </h3>
           <TrendChart data={prices} />
         </div>
+
+        <section className="space-y-2">
+          <button
+            onClick={handleShareDecision}
+            className="w-full bg-white border border-[#004c22] text-[#004c22] font-bold py-3 rounded-xl active:scale-[0.98] transition-transform"
+            style={{ fontFamily: "Manrope, sans-serif", minHeight: "52px" }}
+          >
+            📤 Share Mandi Decision
+          </button>
+          {shareMessage && (
+            <p className="text-center text-xs text-gray-600">{shareMessage}</p>
+          )}
+        </section>
 
         <button
           onClick={() => navigate(`/compare?crop=${cropId}`)}

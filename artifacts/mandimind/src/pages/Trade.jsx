@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCropNames } from "../data/mockPrices";
 import { fetchCompare } from "../utils/api";
+import { shareResult } from "../utils/shareResult";
 
 const COUNTRIES = [
   { id: "UAE", name: "UAE", multiplier: 1.8, cost: 6 },
@@ -57,6 +58,7 @@ export default function Trade() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [mandis, setMandis] = useState([]);
+  const [shareMessage, setShareMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +159,30 @@ export default function Trade() {
 
   const profitTone = getProfitTone(calculations.profitPerKg);
   const recommendationText = getRecommendationDisplay(calculations.recommendation);
+  const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
+
+  async function handleShareTradeResult() {
+    const shareText = `MandiMind Trade Intelligence
+
+Crop: ${selectedCropName}
+Country: ${selectedCountry.name}
+Profit: ₹${Math.round(calculations.totalProfit).toLocaleString("en-IN")}
+Recommendation: ${calculations.recommendation}
+Confidence: ${calculations.confidenceLevel}
+
+Check your trade:
+https://mandimind.pages.dev/trade`;
+
+    const result = await shareResult({
+      title: "MandiMind Trade Intelligence",
+      text: shareText,
+      url: "https://mandimind.pages.dev/trade",
+      fallbackSuccessMessage: "Result copied to clipboard",
+    });
+
+    setShareMessage(result.message);
+    window.setTimeout(() => setShareMessage(""), 2500);
+  }
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -276,6 +302,19 @@ export default function Trade() {
             <div className="flex justify-between"><span className="text-gray-500">Cost</span><span className="font-semibold">₹{selectedCountry.cost.toFixed(2)}/kg</span></div>
             <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">Profit / kg</span><span className="font-bold text-[#004c22]">₹{calculations.profitPerKg.toFixed(2)}</span></div>
           </div>
+        </section>
+
+        <section className="space-y-2">
+          <button
+            onClick={handleShareTradeResult}
+            className="w-full bg-white border border-[#004c22] text-[#004c22] font-bold py-3 rounded-xl active:scale-[0.98] transition-transform"
+            style={{ fontFamily: "Manrope, sans-serif", minHeight: "52px" }}
+          >
+            📤 Share Trade Result
+          </button>
+          {shareMessage && (
+            <p className="text-center text-xs text-gray-600">{shareMessage}</p>
+          )}
         </section>
       </div>
     </div>
