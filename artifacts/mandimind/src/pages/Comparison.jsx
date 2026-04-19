@@ -76,6 +76,35 @@ export default function Comparison() {
       : "Best latest price"
     : "";
   const lastUpdated = compareData?.lastUpdated || liveTodayMandis[0]?.lastUpdated || mandis[0]?.lastUpdated;
+  const comparableMandis = displayedMandis.filter(
+    (item) => Number.isFinite(item.todayPrice) && Number.isFinite(item.avgPrice)
+  );
+  const avgTodayPrice = comparableMandis.length
+    ? Math.round(comparableMandis.reduce((sum, item) => sum + item.todayPrice, 0) / comparableMandis.length)
+    : null;
+  const avgRecentPrice = comparableMandis.length
+    ? Math.round(comparableMandis.reduce((sum, item) => sum + item.avgPrice, 0) / comparableMandis.length)
+    : null;
+  const hasInsightData = Number.isFinite(avgTodayPrice) && Number.isFinite(avgRecentPrice) && avgRecentPrice > 0;
+  const comparisonGapPct = hasInsightData ? ((avgTodayPrice - avgRecentPrice) / avgRecentPrice) * 100 : null;
+  const similarityThresholdPct = 1;
+  const insightType = !hasInsightData
+    ? null
+    : comparisonGapPct > similarityThresholdPct
+      ? "sell"
+      : comparisonGapPct < -similarityThresholdPct
+        ? "wait"
+        : "neutral";
+  const insightStyles = {
+    sell: "bg-green-50 border-green-200 text-green-800",
+    wait: "bg-amber-50 border-amber-200 text-amber-800",
+    neutral: "bg-blue-50 border-blue-200 text-blue-800",
+  };
+  const insightTexts = {
+    sell: t.comparisonInsightSell,
+    wait: t.comparisonInsightWait,
+    neutral: t.comparisonInsightNeutral,
+  };
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -167,6 +196,22 @@ export default function Comparison() {
 
         {!loading && !error && mandis.length > 0 && (
           <>
+            {insightType && (
+              <div className={`rounded-xl border p-3 mb-3 ${insightStyles[insightType]}`}>
+                <p className="text-xs font-semibold mb-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                  {t.simpleInsight}
+                </p>
+                <p className="text-sm font-semibold" style={{ fontFamily: "Manrope, sans-serif" }}>
+                  {insightTexts[insightType]}
+                </p>
+                <p className="text-xs mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                  {t.comparisonInsightBasis
+                    .replace("{today}", avgTodayPrice.toLocaleString("en-IN"))
+                    .replace("{recent}", avgRecentPrice.toLocaleString("en-IN"))}
+                </p>
+              </div>
+            )}
+
             {bestMandi && displayedMandis.length > 0 && (
               <div className="bg-[#004c22] rounded-xl p-3 mb-4 flex items-center justify-between">
                 <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
