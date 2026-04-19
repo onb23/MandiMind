@@ -141,7 +141,7 @@ export default function Home() {
 
     const freshnessDays = item?.latestOption?.freshnessDays;
     const freshness = Number.isFinite(freshnessDays)
-      ? t.daysOld.replace("{days}", freshnessDays)
+      ? (freshnessDays === 1 ? t.dayOld : t.daysOld).replace("{days}", freshnessDays)
       : t.latestAvailable;
     const price = formatInr(item?.latestOption?.price);
     return `${item.mandi} — ${price} · ${freshness}`;
