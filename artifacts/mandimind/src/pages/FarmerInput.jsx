@@ -84,7 +84,7 @@ export default function FarmerInput() {
 
       <div className="px-4">
         {varieties.length > 0 && (
-          <Section label={t.variety || "Variety / जात / वाण"}>
+          <Section label={t.variety}>
             <div className="flex gap-2 flex-wrap">
               {varieties.map((v) => (
                 <button key={v} onClick={() => setVariety(v)}
@@ -98,7 +98,7 @@ export default function FarmerInput() {
             </div>
             {variety && (
               <p className="text-xs text-gray-400 mt-1.5 pl-1">
-                Selected: <span className="font-semibold text-[#004c22]">{variety}</span>
+                {t.selectedLabel}: <span className="font-semibold text-[#004c22]">{variety}</span>
               </p>
             )}
           </Section>
@@ -115,7 +115,7 @@ export default function FarmerInput() {
         <Section label={t.harvestStatus}>
           <RadioGroup value={harvest} onChange={setHarvest} options={[
             { value: "ready",     icon: "🌾", label: t.ready },
-            { value: "soon",      icon: "🌿", label: t.soon || "5–7 Days" },
+            { value: "soon",      icon: "🌿", label: t.soon },
             { value: "not_ready", icon: "🌱", label: t.notReady },
           ]} />
         </Section>
@@ -129,7 +129,7 @@ export default function FarmerInput() {
 
         <Section label={t.urgency}>
           <RadioGroup value={urgency} onChange={setUrgency} options={[
-            { value: "need_money", icon: "💰", label: t.needNow || t.needMoney },
+            { value: "need_money", icon: "💰", label: t.needNow },
             { value: "flexible",   icon: "🕐", label: t.flexible },
             { value: "can_wait",   icon: "🧘", label: t.canWait },
           ]} />
@@ -144,7 +144,7 @@ export default function FarmerInput() {
             type="number"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
-            placeholder="e.g. 10"
+            placeholder={t.quantityPlaceholder}
             className="w-full bg-white border border-gray-300 rounded-xl px-4 py-4 text-base text-[#1e1c10] outline-none focus:border-[#004c22] focus:ring-2 focus:ring-[#004c22]/20"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           />

@@ -46,7 +46,7 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
           )}
           {stale && !freshnessText && (
             <span className="bg-amber-50 text-amber-600 text-[10px] px-2 py-0.5 rounded-full font-medium">
-              {freshnessDays ? `${freshnessDays} day${freshnessDays > 1 ? "s" : ""} old` : "Latest available"}
+              {freshnessDays ? t.daysOld.replace("{days}", freshnessDays) : t.latestAvailable}
             </span>
           )}
         </div>
@@ -55,7 +55,7 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
       <div className="flex justify-between items-end">
         <div>
           <p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {stale ? "Latest price" : t.todayPrice}
+            {stale ? t.latestPrice : t.todayPrice}
           </p>
           <p className="text-2xl font-extrabold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
             {displayPrice}
@@ -63,7 +63,7 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
         </div>
         <div className="text-right">
           <p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {t.avgPrice} (7d)
+            {t.avgPrice7d}
           </p>
           <p className="text-base font-semibold text-gray-600" style={{ fontFamily: "Manrope, sans-serif" }}>
             {displayAvg}
@@ -73,7 +73,7 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
 
       {lastUpdated && (
         <p className="text-[10px] text-gray-300 mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-          Last: {lastUpdated}
+          {t.lastUpdatedPrefix} {lastUpdated}
         </p>
       )}
     </div>

@@ -26,6 +26,11 @@ export default function Decision() {
   const quantity = searchParams.get("quantity") || "0";
 
   const cropInfo = getCropById(cropId);
+  const formatTemplate = (template, params) =>
+    Object.entries(params).reduce(
+      (result, [key, value]) => result.replace(`{${key}}`, value),
+      template
+    );
 
   // ── Live price data from Cloudflare Worker (/api/prices) ─────────────────
   const [livePrices, setLivePrices] = useState(null);
@@ -107,17 +112,17 @@ export default function Decision() {
         decision: "NOT ENOUGH DATA",
         explanation: {
           ...localResult.explanation,
-          trend: "No recent mandi data available for this crop/mandi",
+          trend: t.noRecentMandiDataForCropMandi,
         },
       }
     : localResult;
 
   const formatPrice = (value) => (
-    Number.isFinite(value) ? `₹${value.toLocaleString("en-IN")}` : "Data unavailable"
+    Number.isFinite(value) ? `₹${value.toLocaleString("en-IN")}` : t.dataUnavailable
   );
 
   const formatRoundedPrice = (value) => (
-    Number.isFinite(value) ? `₹${Math.round(value).toLocaleString("en-IN")}` : "Data unavailable"
+    Number.isFinite(value) ? `₹${Math.round(value).toLocaleString("en-IN")}` : t.dataUnavailable
   );
 
   const trendText =
@@ -137,19 +142,19 @@ export default function Decision() {
   const bestOpportunity = mandiCompare.length > 0 ? mandiCompare[0] : null;
   const coverageCount = mandiCompare.length > 0 ? mandiCompare.length : (mandi ? 1 : 0);
   const decisionUrgency = urgency === "need_money"
-    ? { label: "High", className: "bg-red-100 text-red-700 border-red-200" }
+    ? { label: t.high, className: "bg-red-100 text-red-700 border-red-200" }
     : urgency === "flexible"
-      ? { label: "Medium", className: "bg-amber-100 text-amber-700 border-amber-200" }
-      : { label: "Low", className: "bg-green-100 text-green-700 border-green-200" };
+      ? { label: t.medium, className: "bg-amber-100 text-amber-700 border-amber-200" }
+      : { label: t.low, className: "bg-green-100 text-green-700 border-green-200" };
 
   const uncertaintyConditions = forceNotEnoughData
-    ? "No recent mandi records are available yet. Recheck when fresh Agmarknet data appears."
+    ? t.uncertaintyNoRecentData
     : usesFallbackData
-      ? `Data is ${mandiDataStatus.freshnessDays} day(s) old. Recommendation may change after the next mandi update.`
-      : "Recommendation may change quickly if mandi arrivals, weather disruptions, or transport costs shift in the next 24–48 hours.";
+      ? formatTemplate(t.uncertaintyFallbackData, { days: mandiDataStatus.freshnessDays })
+      : t.uncertaintyLiveData;
   const bestOpportunityText = (() => {
     if (!bestOpportunity || !Number.isFinite(bestOpportunity.todayPrice)) {
-      return "Best opportunity will appear once mandi comparison data is available.";
+      return t.bestOpportunityUnavailable;
     }
 
     const selectedComparablePrice = Number.isFinite(currentPrice) ? currentPrice : null;
@@ -158,37 +163,43 @@ export default function Decision() {
       : Math.round(bestOpportunity.todayPrice - selectedComparablePrice);
 
     if (priceEdge == null) {
-      return `${bestOpportunity.mandi} is currently most favorable due to the highest quoted price in your state comparison.`;
+      return formatTemplate(t.bestOpportunityHighestQuoted, { mandi: bestOpportunity.mandi });
     }
 
     if (priceEdge > 0) {
-      return `${bestOpportunity.mandi} is most favorable right now, offering about ₹${priceEdge.toLocaleString("en-IN")} more per quintal than your selected mandi.`;
+      return formatTemplate(t.bestOpportunityMorePerQuintal, {
+        mandi: bestOpportunity.mandi,
+        amount: priceEdge.toLocaleString("en-IN"),
+      });
     }
 
     if (priceEdge === 0) {
-      return `${bestOpportunity.mandi} matches your selected mandi's price, so transport cost should decide final selling point.`;
+      return formatTemplate(t.bestOpportunityMatchesPrice, { mandi: bestOpportunity.mandi });
     }
 
-    return `Your selected mandi is already stronger by about ₹${Math.abs(priceEdge).toLocaleString("en-IN")} per quintal versus ${bestOpportunity.mandi}.`;
+    return formatTemplate(t.selectedMandiAlreadyStronger, {
+      mandi: bestOpportunity.mandi,
+      amount: Math.abs(priceEdge).toLocaleString("en-IN"),
+    });
   })();
 
   async function handleShareDecision() {
-    const shareText = `MandiMind Mandi Decision
+    const shareText = `${t.shareTitle}
 
-Crop: ${cropInfo.name.split(" / ")[0]}
-Mandi: ${mandi}
-Current Price: ${Number.isFinite(currentPrice) ? `₹${currentPrice.toLocaleString("en-IN")}` : "Data unavailable"}
-Decision: ${decisionResult.decision}
-Reason: ${decisionResult.explanation?.trend || "N/A"}
+${t.cropLabel}: ${cropInfo.name.split(" / ")[0]}
+${t.mandiLabel}: ${mandi}
+${t.currentPrice}: ${Number.isFinite(currentPrice) ? `₹${currentPrice.toLocaleString("en-IN")}` : t.dataUnavailable}
+${t.decisionLabel}: ${decisionResult.decision}
+${t.reasonLabel}: ${decisionResult.explanation?.trend || t.naLabel}
 
-Check on MandiMind:
+${t.checkOnMandimind}:
 https://mandimind.pages.dev/`;
 
     const result = await shareResult({
-      title: "MandiMind Mandi Decision",
+      title: t.shareTitle,
       text: shareText,
       url: "https://mandimind.pages.dev/",
-      fallbackSuccessMessage: "Result copied to clipboard",
+      fallbackSuccessMessage: t.resultCopiedToClipboard,
     });
 
     setShareMessage(result.message);
@@ -225,21 +236,21 @@ https://mandimind.pages.dev/`;
           <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
             <span className="text-green-500">✓</span>
             <p className="text-xs text-green-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              LIVE data (Agmarknet)
+              {t.liveDataAgmarknet}
             </p>
           </div>
         ) : usesFallbackData ? (
           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
             <span className="text-amber-500">⚠</span>
             <p className="text-xs text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Latest available data (Agmarknet)
+              {t.latestAvailableDataAgmarknet}
             </p>
           </div>
         ) : (
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
             <span className="text-red-500">✕</span>
             <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Data unavailable
+              {t.dataUnavailable}
             </p>
           </div>
         )}
@@ -278,10 +289,10 @@ https://mandimind.pages.dev/`;
           <div className="flex items-center justify-between border-t border-gray-50 pt-2">
             <span className="text-[10px] text-gray-400">
               {usesTodayData
-                ? "Updated: Today"
+                ? t.updatedToday
                 : usesFallbackData
-                  ? `Date used: ${mandiDataStatus.usedDate} • Freshness: ${mandiDataStatus.freshnessDays} days old`
-                  : "Data unavailable"}
+                  ? formatTemplate(t.dateUsedFreshness, { date: mandiDataStatus.usedDate, days: mandiDataStatus.freshnessDays })
+                  : t.dataUnavailable}
             </span>
             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
               usesTodayData
@@ -291,16 +302,16 @@ https://mandimind.pages.dev/`;
                   : "text-red-600 bg-red-50"
             }`}>
               {usesTodayData
-                ? "● LIVE data (Agmarknet)"
+                ? `● ${t.liveDataAgmarknet}`
                 : usesFallbackData
-                  ? "● Latest available data (Agmarknet)"
-                  : "● Data unavailable"}
+                  ? `● ${t.latestAvailableDataAgmarknet}`
+                  : `● ${t.dataUnavailable}`}
             </span>
           </div>
 
           {decisionResult.variantOffset !== 0 && variety && (
             <div className="flex justify-between items-center pt-1 border-t border-gray-100">
-              <span className="text-sm text-gray-500">{variety} premium</span>
+              <span className="text-sm text-gray-500">{variety} {t.premiumLabel}</span>
               <span className={`text-sm font-semibold ${decisionResult.variantOffset > 0 ? "text-green-600" : "text-red-600"}`}>
                 {decisionResult.variantOffset > 0 ? "+" : ""}₹{decisionResult.variantOffset.toLocaleString("en-IN")}
               </span>
@@ -309,7 +320,7 @@ https://mandimind.pages.dev/`;
 
           {totalValue && (
             <div className="flex justify-between items-center border-t border-gray-100 pt-3">
-              <span className="text-sm text-gray-500">{quantity} quintal total</span>
+              <span className="text-sm text-gray-500">{formatTemplate(t.quintalTotal, { quantity })}</span>
               <span className="text-base font-bold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
                 {totalValue}
               </span>
@@ -319,7 +330,7 @@ https://mandimind.pages.dev/`;
 
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-3">
           <h3 className="text-base font-bold text-[#1e1c10]" style={{ fontFamily: "Manrope, sans-serif" }}>
-            Estimated impact
+            {t.estimatedImpact}
           </h3>
           <p className={`text-sm font-semibold ${
             decisionResult.estimatedImpact?.direction === "positive"
@@ -328,10 +339,10 @@ https://mandimind.pages.dev/`;
                 ? "text-red-700"
                 : "text-amber-700"
           }`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {decisionResult.estimatedImpact?.summary || "+₹80–₹120 per quintal if trend continues"}
+            {decisionResult.estimatedImpact?.summary || t.estimatedImpactDefault}
           </p>
           <div className="pt-2 border-t border-gray-100">
-            <p className="text-xs font-bold uppercase text-[#004c22] mb-1">Best opportunity</p>
+            <p className="text-xs font-bold uppercase text-[#004c22] mb-1">{t.bestOpportunity}</p>
             <p className="text-sm text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {bestOpportunityText}
             </p>
@@ -340,44 +351,47 @@ https://mandimind.pages.dev/`;
 
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-2">
           <h3 className="text-base font-bold text-[#1e1c10]" style={{ fontFamily: "Manrope, sans-serif" }}>
-            Risks to watch
+            {t.risksToWatch}
           </h3>
           <p className="text-sm text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {decisionResult.risks?.mainRisk || "Main risk: near-term mandi volatility may reduce expected returns."}
+            {decisionResult.risks?.mainRisk || t.mainRiskDefault}
           </p>
           <p className="text-sm text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {decisionResult.risks?.secondaryRisk || "Secondary risk: logistics or urgency can lower realized selling price."}
+            {decisionResult.risks?.secondaryRisk || t.secondaryRiskDefault}
           </p>
         </div>
 
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 space-y-3">
           <h3 className="text-base font-bold text-[#1e1c10]" style={{ fontFamily: "Manrope, sans-serif" }}>
-            Trust & transparency
+            {t.trustAndTransparency}
           </h3>
 
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Data coverage</span>
+            <span className="text-sm text-gray-500">{t.dataCoverage}</span>
             <span className="text-sm font-semibold text-[#004c22]">
-              {coverageCount} mandi{coverageCount === 1 ? "" : "s"} considered
+              {formatTemplate(
+                coverageCount === 1 ? t.mandiCoverageSingle : t.mandiCoveragePlural,
+                { count: coverageCount }
+              )}
             </span>
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Decision urgency</span>
+            <span className="text-sm text-gray-500">{t.decisionUrgency}</span>
             <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${decisionUrgency.className}`}>
               {decisionUrgency.label}
             </span>
           </div>
 
           <div className="border-t border-gray-100 pt-2">
-            <p className="text-xs font-bold uppercase text-[#004c22] mb-1">When this may change</p>
+            <p className="text-xs font-bold uppercase text-[#004c22] mb-1">{t.whenThisMayChange}</p>
             <p className="text-sm text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {uncertaintyConditions}
             </p>
           </div>
 
           <p className="text-xs text-gray-500 border-t border-gray-100 pt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            This is guidance based on available mandi data, not a guarantee.
+            {t.guidanceNotGuarantee}
           </p>
         </div>
 
@@ -413,13 +427,13 @@ https://mandimind.pages.dev/`;
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex items-center gap-3">
             <div className="w-5 h-5 rounded-full border-2 border-[#004c22]/20 border-t-[#004c22] animate-spin" />
             <p className="text-xs text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Loading mandi prices…
+              {t.loadingMandiPrices}
             </p>
           </div>
         ) : compareError ? (
           <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
             <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Unable to fetch live mandi data — check your connection
+              {t.unableToFetchLiveMandiData}
             </p>
           </div>
         ) : mandiCompare.length > 0 ? (
@@ -464,7 +478,7 @@ https://mandimind.pages.dev/`;
             className="w-full bg-white border border-[#004c22] text-[#004c22] font-bold py-3 rounded-xl active:scale-[0.98] transition-transform"
             style={{ fontFamily: "Manrope, sans-serif", minHeight: "52px" }}
           >
-            📤 Share Mandi Decision
+            📤 {t.shareMandiDecision}
           </button>
           {shareMessage && (
             <p className="text-center text-xs text-gray-600">{shareMessage}</p>
