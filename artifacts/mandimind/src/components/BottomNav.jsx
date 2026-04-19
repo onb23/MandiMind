@@ -49,7 +49,7 @@ export default function BottomNav() {
     },
     {
       label: t.forecast,
-      path: "/forecast",
+      path: "/trade",
       icon: (
         <svg
           className="w-6 h-6"

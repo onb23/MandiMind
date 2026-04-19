@@ -8,7 +8,7 @@ import Home from "./pages/Home";
 import FarmerInput from "./pages/FarmerInput";
 import Decision from "./pages/Decision";
 import Comparison from "./pages/Comparison";
-import Forecast from "./pages/Forecast";
+import Trade from "./pages/Trade";
 import Settings from "./pages/Settings";
 
 function App() {
@@ -32,7 +32,7 @@ function App() {
             <Route path="/input"    element={<FarmerInput />} />
             <Route path="/decision" element={<Decision />} />
             <Route path="/compare"  element={<Comparison />} />
-            <Route path="/forecast" element={<Forecast />} />
+            <Route path="/trade" element={<Trade />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
           <BottomNav />

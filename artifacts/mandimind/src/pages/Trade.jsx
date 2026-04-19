@@ -48,7 +48,7 @@ function getRecommendationDisplay(recommendation) {
   return "⚠️ WAIT";
 }
 
-export default function Forecast() {
+export default function Trade() {
   const cropList = getCropNames();
   const [selectedCrop, setSelectedCrop] = useState(cropList[0]?.id || "onion");
   const [quantity, setQuantity] = useState(DEFAULT_QUANTITY);
