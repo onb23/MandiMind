@@ -1,5 +1,4 @@
-import { fetchCompare, fetchPrices } from "./api";
-import { getCropNames } from "../data/mockPrices";
+import { fetchCompare, fetchCropUniverse, fetchPrices } from "./api";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_STATE = "Maharashtra";
@@ -286,14 +285,12 @@ export function splitMandisByFreshness(mandis = []) {
 }
 
 export async function fetchAvailableCrops(state = DEFAULT_STATE) {
-  const cropList = getCropNames();
-  const results = await Promise.all(
-    cropList.map(async (crop) => {
-      const result = await fetchAvailableMandis(crop.id, state);
-      const hasUsableMandi = (result?.mandis || []).some((mandi) => mandi.isUsable);
-      return hasUsableMandi ? crop : null;
-    })
-  );
+  const cropWindowDays = 15;
+  const result = await fetchCropUniverse(state, cropWindowDays);
 
-  return results.filter(Boolean);
+  if (result?.source === "error") {
+    return [];
+  }
+
+  return Array.isArray(result?.crops) ? result.crops : [];
 }

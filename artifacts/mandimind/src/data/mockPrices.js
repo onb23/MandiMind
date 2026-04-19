@@ -84,7 +84,16 @@ export const CROPS = Object.entries(CROP_DATA).map(([id, d]) => ({
 
 export function getCropById(id) {
   const d = CROP_DATA[id];
-  if (!d) return { id: "onion", ...CROP_DATA.onion };
+  if (!d) {
+    const display = typeof id === "string" && id.trim() ? id.trim() : "Unknown Crop";
+    return {
+      id: display,
+      name: display,
+      marathiName: "",
+      varieties: [],
+      mandis: [],
+    };
+  }
   return { id, ...d };
 }
 

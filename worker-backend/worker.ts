@@ -28,6 +28,21 @@ const CROP_MAP: Record<string, string> = {
   cotton:  "Cotton(Unginned)",
 };
 
+const COMMODITY_DISPLAY_MAP: Record<string, string> = {
+  Onion: "Onion / कांदा",
+  Tomato: "Tomato / टोमॅटो",
+  Wheat: "Wheat / गहू",
+  Soybean: "Soybean / सोयाबीन",
+  "Cotton(Unginned)": "Cotton / कापूस",
+  Potato: "Potato / बटाटा",
+  "Green Chilli": "Green Chilli / हिरवी मिरची",
+  Grapes: "Grapes / द्राक्षे",
+  Pomegranate: "Pomegranate / डाळिंब",
+  Mango: "Mango / आंबा",
+  Banana: "Banana / केळी",
+  Rice: "Rice / तांदूळ",
+};
+
 // In-memory cache (lives for the lifetime of the Worker isolate)
 const cache = new Map<string, { data: unknown; ts: number }>();
 
@@ -60,6 +75,10 @@ function isDataStale(dateStr: string): boolean {
   return ts < Date.now() - 2 * 24 * 60 * 60 * 1000;
 }
 
+function toDisplayCropName(commodity: string): string {
+  return COMMODITY_DISPLAY_MAP[commodity] ?? commodity;
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -86,8 +105,8 @@ async function fetchDataGov(
     "api-key": apiKey,
     format: "json",
     limit: String(limit),
-    "filters[commodity]": commodity,
   });
+  if (commodity) params.set("filters[commodity]", commodity);
   if (market) params.set("filters[market]", market);
   if (state)  params.set("filters[state]", state);
   if (arrivalDate) params.set("filters[arrival_date]", arrivalDate);
@@ -319,6 +338,68 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
   }
 }
 
+async function handleCrops(params: URLSearchParams, env: Env): Promise<Response> {
+  const state = params.get("state") ?? "Maharashtra";
+  const requestedDays = Number(params.get("days") ?? "15");
+  const windowDays = Math.max(7, Math.min(15, requestedDays || 15));
+  const cacheKey = `crops:${state}:${windowDays}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return json({ ...(cached.data as object), fromCache: true });
+  }
+
+  try {
+    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 500);
+    const today = new Date();
+    const bucket = new Map<string, { latestTs: number; latestDate: string; recordCount: number }>();
+
+    for (const row of records) {
+      const commodity = row.commodity?.trim();
+      if (!commodity) continue;
+      const ts = parseArrivalDate(row.date);
+      if (!ts) continue;
+
+      const ageDays = Math.floor((today.getTime() - ts) / (24 * 60 * 60 * 1000));
+      if (ageDays < 0 || ageDays > windowDays) continue;
+
+      const existing = bucket.get(commodity);
+      if (!existing) {
+        bucket.set(commodity, { latestTs: ts, latestDate: row.date, recordCount: 1 });
+      } else {
+        existing.recordCount += 1;
+        if (ts > existing.latestTs) {
+          existing.latestTs = ts;
+          existing.latestDate = row.date;
+        }
+      }
+    }
+
+    const crops = Array.from(bucket.entries())
+      .map(([commodity, meta]) => ({
+        id: commodity,
+        name: toDisplayCropName(commodity),
+        commodity,
+        latestDate: meta.latestDate,
+        recordCount: meta.recordCount,
+      }))
+      .sort((a, b) => {
+        const byDate = parseArrivalDate(b.latestDate) - parseArrivalDate(a.latestDate);
+        if (byDate !== 0) return byDate;
+        const byCount = b.recordCount - a.recordCount;
+        if (byCount !== 0) return byCount;
+        return a.name.localeCompare(b.name);
+      });
+
+    const data = { crops, windowDays, source: "live" };
+    cache.set(cacheKey, { data, ts: Date.now() });
+    return json(data);
+  } catch {
+    if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
+    return json({ crops: [], windowDays, source: "error", error: "data.gov.in unavailable" }, 502);
+  }
+}
+
 async function handleRecommendation(params: URLSearchParams, env: Env): Promise<Response> {
   const crop  = params.get("crop") ?? "";
   const state = params.get("state") ?? "Maharashtra";
@@ -446,6 +527,7 @@ export default {
 if (path === "/api/prices")         return handlePrices(params, env);
 if (path === "/api/trend")          return handleTrend(params, env);
 if (path === "/api/compare")        return handleCompare(params, env);
+if (path === "/api/crops")          return handleCrops(params, env);
 if (path === "/api/recommendation") return handleRecommendation(params, env);
 
     return json({ error: "Not found" }, 404);

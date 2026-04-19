@@ -15,6 +15,21 @@ const CROP_MAP: Record<string, string> = {
   cotton:  "Cotton(Unginned)",
 };
 
+const COMMODITY_DISPLAY_MAP: Record<string, string> = {
+  Onion: "Onion / कांदा",
+  Tomato: "Tomato / टोमॅटो",
+  Wheat: "Wheat / गहू",
+  Soybean: "Soybean / सोयाबीन",
+  "Cotton(Unginned)": "Cotton / कापूस",
+  Potato: "Potato / बटाटा",
+  "Green Chilli": "Green Chilli / हिरवी मिरची",
+  Grapes: "Grapes / द्राक्षे",
+  Pomegranate: "Pomegranate / डाळिंब",
+  Mango: "Mango / आंबा",
+  Banana: "Banana / केळी",
+  Rice: "Rice / तांदूळ",
+};
+
 // Simple in-memory cache: key → { data, ts }
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
@@ -33,6 +48,10 @@ function isDataStale(dateStr: string): boolean {
   if (!ts) return true;
   const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
   return ts < twoDaysAgo;
+}
+
+function toDisplayCropName(commodity: string): string {
+  return COMMODITY_DISPLAY_MAP[commodity] || commodity;
 }
 
 interface PriceRecord {
@@ -59,8 +78,8 @@ async function fetchDataGov(
     "api-key": apiKey,
     format: "json",
     limit: String(limit),
-    "filters[commodity]": commodity,
   });
+  if (commodity) params.set("filters[commodity]", commodity);
   if (market) params.set("filters[market]", market);
   if (state) params.set("filters[state]", state);
   if (arrivalDate) params.set("filters[arrival_date]", arrivalDate);
@@ -326,6 +345,77 @@ router.get("/compare", async (req: Request, res: Response) => {
       error:   "data.gov.in unavailable",
       mandis:  [],
       source:  "error",
+    });
+  }
+});
+
+// ── GET /api/crops ───────────────────────────────────────────────────────────
+// Query: state (default Maharashtra), days (default 15)
+// Returns crops seen in recent real data, ranked by recency + frequency.
+router.get("/crops", async (req: Request, res: Response) => {
+  const { state = "Maharashtra", days = "15" } = req.query as Record<string, string>;
+  const windowDays = Math.max(7, Math.min(15, Number(days) || 15));
+  const cacheKey = `crops:${state}:${windowDays}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return res.json({ ...(cached.data as object), fromCache: true });
+  }
+
+  try {
+    const records = await fetchDataGov("", "", state, 500);
+    const today = new Date();
+    const bucket = new Map<string, { latestTs: number; latestDate: string; recordCount: number }>();
+
+    for (const row of records) {
+      const commodity = row.commodity?.trim();
+      if (!commodity) continue;
+      const ts = parseArrivalDate(row.date);
+      if (!ts) continue;
+      const ageDays = Math.floor((today.getTime() - ts) / (24 * 60 * 60 * 1000));
+      if (ageDays < 0 || ageDays > windowDays) continue;
+
+      const existing = bucket.get(commodity);
+      if (!existing) {
+        bucket.set(commodity, { latestTs: ts, latestDate: row.date, recordCount: 1 });
+      } else {
+        existing.recordCount += 1;
+        if (ts > existing.latestTs) {
+          existing.latestTs = ts;
+          existing.latestDate = row.date;
+        }
+      }
+    }
+
+    const crops = Array.from(bucket.entries())
+      .map(([commodity, meta]) => ({
+        id: commodity,
+        name: toDisplayCropName(commodity),
+        commodity,
+        latestDate: meta.latestDate,
+        recordCount: meta.recordCount,
+      }))
+      .sort((a, b) => {
+        const byDate = parseArrivalDate(b.latestDate) - parseArrivalDate(a.latestDate);
+        if (byDate !== 0) return byDate;
+        const byCount = b.recordCount - a.recordCount;
+        if (byCount !== 0) return byCount;
+        return a.name.localeCompare(b.name);
+      });
+
+    const responseData = { crops, windowDays, source: "live" };
+    cache.set(cacheKey, { data: responseData, ts: Date.now() });
+    return res.json(responseData);
+  } catch (err) {
+    logger.error({ err }, "crop universe fetch failed");
+    if (cached) {
+      return res.json({ ...(cached.data as object), fromCache: true, stale: true });
+    }
+    return res.status(502).json({
+      crops: [],
+      windowDays,
+      source: "error",
+      error: "data.gov.in unavailable",
     });
   }
 });
