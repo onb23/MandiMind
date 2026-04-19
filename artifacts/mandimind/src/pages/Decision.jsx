@@ -3,24 +3,16 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { getCropById } from "../data/mockPrices";
 import { getDecision } from "../utils/decisionEngine";
-import { fetchPrices, fetchCompare } from "../utils/api";
+import { fetchPrices } from "../utils/api";
+import {
+  classifyPriceRows,
+  fetchClassifiedMandis,
+  getUsableMandis,
+  DATA_FRESHNESS,
+} from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function parseArrivalDate(dateStr) {
-  if (!dateStr || typeof dateStr !== "string") return null;
-  const [dd, mm, yyyy] = dateStr.split("/");
-  if (!dd || !mm || !yyyy) return null;
-  const parsed = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function startOfDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
 
 export default function Decision() {
   const { t } = useLanguage();
@@ -69,53 +61,7 @@ export default function Decision() {
     [prices, quality, harvest, storage, urgency, variety, cropId]
   );
 
-  const mandiDataStatus = useMemo(() => {
-    const today = startOfDay(new Date());
-
-    const records = (livePrices ?? [])
-      .map((row) => {
-        const price = row.modal_price ?? row.price;
-        const parsedDate = parseArrivalDate(row.date);
-        if (!Number.isFinite(price) || !parsedDate) return null;
-        return { price, date: row.date, parsedDate };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime());
-
-    if (!records.length) return { type: "unavailable", isUsable: false };
-
-    const todayRecord = records.find(
-      (record) => startOfDay(record.parsedDate).getTime() === today.getTime()
-    );
-
-    if (todayRecord) {
-      return {
-        type: "today",
-        isUsable: true,
-        usedDate: todayRecord.date,
-        freshnessDays: 0,
-        selectedPrice: todayRecord.price,
-      };
-    }
-
-    const latestRecord = records[0];
-    const freshnessDays = Math.max(
-      0,
-      Math.floor((today.getTime() - startOfDay(latestRecord.parsedDate).getTime()) / DAY_MS)
-    );
-
-    if (freshnessDays > 7) {
-      return { type: "stale_unusable", isUsable: false, freshnessDays };
-    }
-
-    return {
-      type: freshnessDays <= 2 ? "fallback_ok" : "fallback_warn",
-      isUsable: true,
-      usedDate: latestRecord.date,
-      freshnessDays,
-      selectedPrice: latestRecord.price,
-    };
-  }, [livePrices]);
+  const mandiDataStatus = useMemo(() => classifyPriceRows(livePrices ?? []), [livePrices]);
 
   // ── Mandi comparison from Cloudflare Worker (/api/compare) ───────────────
   const [mandiCompare, setMandiCompare] = useState([]);
@@ -123,28 +69,41 @@ export default function Decision() {
   const [compareError, setCompareError] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     setCompareLoading(true);
     setCompareError(false);
 
-    fetchCompare(cropId, stateVal, 7)
+    fetchClassifiedMandis(cropId, stateVal, { compareDays: 7 })
       .then((res) => {
+        if (cancelled) return;
+
         if (res.source === "error") {
-          console.error("[MandiMind] fetchCompare error:", res.error);
+          console.error("[MandiMind] fetchClassifiedMandis error:", res.error);
           setCompareError(true);
-        } else if (res.mandis?.length) {
-          setMandiCompare(res.mandis.slice(0, 5));
+          return;
         }
+
+        const usable = getUsableMandis(res.mandis || []).slice(0, 5);
+        setMandiCompare(usable);
       })
       .catch((err) => {
-        console.error("[MandiMind] fetchCompare caught:", err);
+        if (cancelled) return;
+        console.error("[MandiMind] fetchClassifiedMandis caught:", err);
         setCompareError(true);
       })
-      .finally(() => setCompareLoading(false));
+      .finally(() => {
+        if (!cancelled) setCompareLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [cropId, stateVal]);
 
   const hasUsableMandiData = mandiDataStatus.isUsable;
-  const usesTodayData = mandiDataStatus.type === "today";
-  const usesFallbackData = mandiDataStatus.type === "fallback_ok" || mandiDataStatus.type === "fallback_warn";
+  const usesTodayData = mandiDataStatus.freshness === DATA_FRESHNESS.LIVE;
+  const usesFallbackData = mandiDataStatus.freshness === DATA_FRESHNESS.RECENT;
   const forceNotEnoughData = !hasUsableMandiData;
 
   const currentPrice = hasUsableMandiData

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { getCropNames } from "../data/mockPrices";
-import { fetchAvailableMandis } from "../utils/mandiAvailability";
+import { fetchAvailableCrops, fetchClassifiedMandis, getUsableMandis, DATA_FRESHNESS } from "../utils/mandiAvailability";
 import logo from "../assets/logo.svg";
 
 export default function Home() {
@@ -12,16 +12,14 @@ export default function Home() {
   const [selectedCrop,  setSelectedCrop]  = useState("");
   const [selectedMandi, setSelectedMandi] = useState("");
 
-  const cropList = getCropNames();
+  const [cropOptions, setCropOptions] = useState([]);
+  const [cropsLoading, setCropsLoading] = useState(true);
 
   const [mandiOptions, setMandiOptions] = useState([]);
   const [mandiLoading, setMandiLoading] = useState(false);
   const [mandiError, setMandiError] = useState("");
 
-  const visibleMandis = useMemo(
-    () => mandiOptions.filter((item) => item.availability === "full" || item.availability === "limited"),
-    [mandiOptions]
-  );
+  const visibleMandis = useMemo(() => getUsableMandis(mandiOptions), [mandiOptions]);
 
   const handleCropChange = (cropId) => {
     setSelectedCrop(cropId);
@@ -33,6 +31,31 @@ export default function Home() {
   };
 
 
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCrops() {
+      setCropsLoading(true);
+      const cropList = getCropNames();
+      const crops = await fetchAvailableCrops(cropList, "Maharashtra");
+
+      if (cancelled) return;
+
+      setCropOptions(crops);
+      if (selectedCrop && !crops.some((crop) => crop.id === selectedCrop)) {
+        setSelectedCrop("");
+        setSelectedMandi("");
+      }
+      setCropsLoading(false);
+    }
+
+    loadCrops();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     let cancelled = false;
 
@@ -47,7 +70,7 @@ export default function Home() {
       setMandiLoading(true);
       setMandiError("");
 
-      const result = await fetchAvailableMandis(selectedCrop, "Maharashtra");
+      const result = await fetchClassifiedMandis(selectedCrop, "Maharashtra");
 
       if (cancelled) return;
 
@@ -107,7 +130,7 @@ export default function Home() {
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
             <option value="">{t.selectCrop}</option>
-            {cropList.map((c) => (
+            {cropOptions.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
@@ -123,14 +146,14 @@ export default function Home() {
           <select
             value={selectedMandi}
             onChange={(e) => handleMandiChange(e.target.value)}
-            disabled={!selectedCrop || mandiLoading}
+            disabled={!selectedCrop || mandiLoading || cropsLoading}
             className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3.5 text-base text-[#1e1c10] outline-none focus:border-[#004c22] disabled:opacity-50"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
-            <option value="">{selectedCrop ? (mandiLoading ? "Loading live mandis…" : t.selectMandi) : "— Select crop first —"}</option>
+            <option value="">{selectedCrop ? (mandiLoading ? "Loading live mandis…" : t.selectMandi) : (cropsLoading ? "Loading crops…" : "— Select crop first —")}</option>
             {visibleMandis.map((item) => (
               <option key={item.mandi} value={item.mandi}>
-                {item.mandi}{item.availability === "limited" ? " (limited history)" : ""}
+                {item.mandi}{item.freshness === DATA_FRESHNESS.RECENT && Number.isFinite(item.freshnessDays) ? ` (${item.freshnessDays} day${item.freshnessDays === 1 ? "" : "s"} old)` : ""}
               </option>
             ))}
           </select>
