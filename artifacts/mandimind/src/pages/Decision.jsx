@@ -4,23 +4,10 @@ import { useLanguage } from "../context/LanguageContext";
 import { getCropById } from "../data/mockPrices";
 import { getDecision } from "../utils/decisionEngine";
 import { fetchPrices, fetchCompare } from "../utils/api";
+import { getMandiAvailabilityFromRecords } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function parseArrivalDate(dateStr) {
-  if (!dateStr || typeof dateStr !== "string") return null;
-  const [dd, mm, yyyy] = dateStr.split("/");
-  if (!dd || !mm || !yyyy) return null;
-  const parsed = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function startOfDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
 
 export default function Decision() {
   const { t } = useLanguage();
@@ -70,50 +57,11 @@ export default function Decision() {
   );
 
   const mandiDataStatus = useMemo(() => {
-    const today = startOfDay(new Date());
-
-    const records = (livePrices ?? [])
-      .map((row) => {
-        const price = row.modal_price ?? row.price;
-        const parsedDate = parseArrivalDate(row.date);
-        if (!Number.isFinite(price) || !parsedDate) return null;
-        return { price, date: row.date, parsedDate };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime());
-
-    if (!records.length) return { type: "unavailable", isUsable: false };
-
-    const todayRecord = records.find(
-      (record) => startOfDay(record.parsedDate).getTime() === today.getTime()
-    );
-
-    if (todayRecord) {
-      return {
-        type: "today",
-        isUsable: true,
-        usedDate: todayRecord.date,
-        freshnessDays: 0,
-        selectedPrice: todayRecord.price,
-      };
-    }
-
-    const latestRecord = records[0];
-    const freshnessDays = Math.max(
-      0,
-      Math.floor((today.getTime() - startOfDay(latestRecord.parsedDate).getTime()) / DAY_MS)
-    );
-
-    if (freshnessDays > 7) {
-      return { type: "stale_unusable", isUsable: false, freshnessDays };
-    }
-
+    const availability = getMandiAvailabilityFromRecords(livePrices, { maxFreshnessDays: 3 });
+    if (!availability.isUsable) return { type: "unavailable", isUsable: false };
     return {
-      type: freshnessDays <= 2 ? "fallback_ok" : "fallback_warn",
-      isUsable: true,
-      usedDate: latestRecord.date,
-      freshnessDays,
-      selectedPrice: latestRecord.price,
+      ...availability,
+      type: availability.bucket === "live_today" ? "today" : "fallback_recent",
     };
   }, [livePrices]);
 
@@ -144,7 +92,7 @@ export default function Decision() {
 
   const hasUsableMandiData = mandiDataStatus.isUsable;
   const usesTodayData = mandiDataStatus.type === "today";
-  const usesFallbackData = mandiDataStatus.type === "fallback_ok" || mandiDataStatus.type === "fallback_warn";
+  const usesFallbackData = mandiDataStatus.type === "fallback_recent";
   const forceNotEnoughData = !hasUsableMandiData;
 
   const currentPrice = hasUsableMandiData

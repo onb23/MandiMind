@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { getCropNames } from "../data/mockPrices";
-import { fetchAvailableMandis } from "../utils/mandiAvailability";
+import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
 import logo from "../assets/logo.svg";
 
 export default function Home() {
@@ -12,14 +11,15 @@ export default function Home() {
   const [selectedCrop,  setSelectedCrop]  = useState("");
   const [selectedMandi, setSelectedMandi] = useState("");
 
-  const cropList = getCropNames();
+  const [cropList, setCropList] = useState([]);
+  const [cropLoading, setCropLoading] = useState(true);
 
   const [mandiOptions, setMandiOptions] = useState([]);
   const [mandiLoading, setMandiLoading] = useState(false);
   const [mandiError, setMandiError] = useState("");
 
   const visibleMandis = useMemo(
-    () => mandiOptions.filter((item) => item.availability === "full" || item.availability === "limited"),
+    () => mandiOptions.filter((item) => item.isUsable),
     [mandiOptions]
   );
 
@@ -32,6 +32,27 @@ export default function Home() {
     setSelectedMandi(mandi);
   };
 
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCrops() {
+      setCropLoading(true);
+      const crops = await fetchAvailableCrops("Maharashtra");
+      if (!cancelled) {
+        setCropList(crops);
+        if (selectedCrop && !crops.some((crop) => crop.id === selectedCrop)) {
+          setSelectedCrop("");
+          setSelectedMandi("");
+        }
+        setCropLoading(false);
+      }
+    }
+
+    loadCrops();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,14 +124,20 @@ export default function Home() {
           <select
             value={selectedCrop}
             onChange={(e) => handleCropChange(e.target.value)}
+            disabled={cropLoading}
             className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3.5 text-base text-[#1e1c10] outline-none focus:border-[#004c22]"
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
-            <option value="">{t.selectCrop}</option>
+            <option value="">{cropLoading ? "Loading available crops…" : t.selectCrop}</option>
             {cropList.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
+          {!cropLoading && cropList.length === 0 && (
+            <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              No crops with usable data in the last 3 days.
+            </p>
+          )}
         </div>
 
         <div>
@@ -130,7 +157,7 @@ export default function Home() {
             <option value="">{selectedCrop ? (mandiLoading ? "Loading live mandis…" : t.selectMandi) : "— Select crop first —"}</option>
             {visibleMandis.map((item) => (
               <option key={item.mandi} value={item.mandi}>
-                {item.mandi}{item.availability === "limited" ? " (limited history)" : ""}
+                {item.mandi}{item.bucket === "latest_available" ? ` (${item.freshnessDays}d old)` : ""}
               </option>
             ))}
           </select>
@@ -204,7 +231,7 @@ export default function Home() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-2" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-          Maharashtra only · 5 crops · Agmarknet data
+          Maharashtra only · Agmarknet data (today + last 3 days)
         </p>
       </div>
     </div>
