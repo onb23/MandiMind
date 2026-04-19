@@ -1,6 +1,9 @@
-import { fetchCompare } from "./api";
+import { fetchCompare, fetchPrices } from "./api";
+import { getCropNames } from "../data/mockPrices";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_STATE = "Maharashtra";
+const DEFAULT_MAX_FRESHNESS_DAYS = 3;
 
 export const DATA_FRESHNESS = {
   LIVE: "LIVE",
@@ -8,7 +11,7 @@ export const DATA_FRESHNESS = {
   STALE: "STALE",
 };
 
-function parseArrivalDate(dateStr) {
+export function parseArrivalDate(dateStr) {
   if (!dateStr || typeof dateStr !== "string") return null;
   const [dd, mm, yyyy] = dateStr.split("/");
   if (!dd || !mm || !yyyy) return null;
@@ -16,7 +19,7 @@ function parseArrivalDate(dateStr) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function startOfDay(date) {
+export function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
@@ -27,24 +30,90 @@ function getFreshnessDays(parsedDate, today = startOfDay(new Date())) {
 export function classifyByDate(dateStr, today = startOfDay(new Date())) {
   const parsedDate = parseArrivalDate(dateStr);
   if (!parsedDate) {
-    return {
-      freshness: DATA_FRESHNESS.STALE,
-      freshnessDays: null,
-      parsedDate: null,
-    };
+    return { freshness: DATA_FRESHNESS.STALE, freshnessDays: null, parsedDate: null };
   }
-
   const freshnessDays = getFreshnessDays(parsedDate, today);
-
   if (freshnessDays === 0) {
     return { freshness: DATA_FRESHNESS.LIVE, freshnessDays, parsedDate };
   }
-
   if (freshnessDays >= 1 && freshnessDays <= 3) {
     return { freshness: DATA_FRESHNESS.RECENT, freshnessDays, parsedDate };
   }
-
   return { freshness: DATA_FRESHNESS.STALE, freshnessDays, parsedDate };
+}
+
+export function getMandiAvailabilityFromRecords(records, options = {}) {
+  const { maxFreshnessDays = DEFAULT_MAX_FRESHNESS_DAYS } = options;
+  const today = startOfDay(new Date());
+
+  const normalizedRecords = (records ?? [])
+    .map((row) => {
+      const price = row.modal_price ?? row.price;
+      const parsedDate = parseArrivalDate(row.date);
+      if (!Number.isFinite(price) || !parsedDate) return null;
+      return { price, date: row.date, parsedDate };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime());
+
+  if (!normalizedRecords.length) {
+    return { bucket: "unavailable", isUsable: false };
+  }
+
+  const liveToday = normalizedRecords.find(
+    (row) => startOfDay(row.parsedDate).getTime() === today.getTime()
+  );
+
+  if (liveToday) {
+    return {
+      bucket: "live_today",
+      isUsable: true,
+      isLiveToday: true,
+      usedDate: liveToday.date,
+      freshnessDays: 0,
+      selectedPrice: liveToday.price,
+    };
+  }
+
+  const latest = normalizedRecords[0];
+  const freshnessDays = getFreshnessDays(latest.parsedDate, today);
+
+  if (freshnessDays > maxFreshnessDays) {
+    return { bucket: "unavailable", isUsable: false, freshnessDays };
+  }
+
+  return {
+    bucket: "latest_available",
+    isUsable: true,
+    isLiveToday: false,
+    usedDate: latest.date,
+    freshnessDays,
+    selectedPrice: latest.price,
+  };
+}
+
+function getRecentValidHistoryCount(priceRows, recentWindowDays = 7) {
+  const today = startOfDay(new Date());
+
+  return (priceRows ?? []).reduce((count, row) => {
+    const price = row.modal_price ?? row.price;
+    const parsedDate = parseArrivalDate(row.date);
+
+    if (!Number.isFinite(price) || !parsedDate) return count;
+
+    const freshnessDays = getFreshnessDays(parsedDate, today);
+
+    if (freshnessDays > recentWindowDays) return count;
+    return count + 1;
+  }, 0);
+}
+
+function classifyMandiData({ mandiAvailability, recentHistoryCount, minHistoryPoints = 3 }) {
+  if (!mandiAvailability.isUsable) return "unavailable";
+  if (mandiAvailability.bucket === "live_today") {
+    return recentHistoryCount >= minHistoryPoints ? "full" : "limited";
+  }
+  return "fallback_recent";
 }
 
 export function classifyPriceRows(priceRows = []) {
@@ -78,33 +147,67 @@ export function classifyPriceRows(priceRows = []) {
   };
 }
 
-export async function fetchClassifiedMandis(cropId, state = "Maharashtra", options = {}) {
-  const { compareDays = 7 } = options;
+export async function fetchAvailableMandis(cropId, state = "Maharashtra", options = {}) {
+  const {
+    compareDays = 7,
+    historyDays = 30,
+    recentWindowDays = 7,
+    minHistoryPoints = 3,
+  } = options;
 
   const compareResult = await fetchCompare(cropId, state, compareDays);
   if (compareResult?.source === "error") {
     return {
       mandis: [],
-      source: "error",
       lastUpdated: null,
+      source: "error",
       error: compareResult.error || "Unable to fetch mandi availability",
     };
   }
 
-  const mandis = (Array.isArray(compareResult?.mandis) ? compareResult.mandis : []).map((item) => {
-    const freshnessMeta = classifyByDate(item?.lastUpdated);
-    return {
-      ...item,
-      freshness: freshnessMeta.freshness,
-      freshnessDays: freshnessMeta.freshnessDays,
-      isUsable: freshnessMeta.freshness !== DATA_FRESHNESS.STALE,
-    };
-  });
+  const compareMandis = Array.isArray(compareResult?.mandis) ? compareResult.mandis : [];
+
+  const mandiStatus = await Promise.all(
+    compareMandis.map(async (mandiItem) => {
+      const mandiName = mandiItem?.mandi;
+
+      if (!mandiName) return null;
+
+      const priceResult = await fetchPrices(cropId, mandiName, state, historyDays);
+      const mandiAvailability = getMandiAvailabilityFromRecords(priceResult?.data, {
+        maxFreshnessDays: DEFAULT_MAX_FRESHNESS_DAYS,
+      });
+      const recentHistoryCount = getRecentValidHistoryCount(priceResult?.data, recentWindowDays);
+
+      const availability = classifyMandiData({
+        mandiAvailability,
+        recentHistoryCount,
+        minHistoryPoints,
+      });
+
+      return {
+        ...mandiItem,
+        ...mandiAvailability,
+        todayPrice: mandiAvailability.selectedPrice ?? mandiItem.todayPrice,
+        lastUpdated: mandiAvailability.usedDate ?? mandiItem.lastUpdated,
+        availability,
+        recentHistoryCount,
+      };
+    })
+  );
+
+  const usableMandis = mandiStatus
+    .filter(Boolean)
+    .filter((item) => item.availability !== "unavailable");
 
   return {
     ...compareResult,
-    mandis,
+    mandis: usableMandis,
   };
+}
+
+export async function fetchClassifiedMandis(cropId, state = "Maharashtra", options = {}) {
+  return fetchAvailableMandis(cropId, state, options);
 }
 
 export function getUsableMandis(mandis = []) {
@@ -112,26 +215,26 @@ export function getUsableMandis(mandis = []) {
 }
 
 export function splitMandisByFreshness(mandis = []) {
-  const usable = getUsableMandis(mandis);
+  const usable = mandis.filter((item) => item?.isUsable);
   return {
-    live: usable.filter((item) => item.freshness === DATA_FRESHNESS.LIVE),
-    recent: usable.filter((item) => item.freshness === DATA_FRESHNESS.RECENT),
+    live: usable.filter(
+      (item) => item.bucket === "live_today" || item.freshness === DATA_FRESHNESS.LIVE
+    ),
+    recent: usable.filter(
+      (item) => item.bucket === "latest_available" || item.freshness === DATA_FRESHNESS.RECENT
+    ),
   };
 }
 
-export async function fetchAvailableCrops(cropList, state = "Maharashtra") {
-  const cropStatus = await Promise.all(
+export async function fetchAvailableCrops(state = DEFAULT_STATE) {
+  const cropList = getCropNames();
+  const results = await Promise.all(
     cropList.map(async (crop) => {
-      const result = await fetchClassifiedMandis(crop.id, state);
-      const usableMandis = getUsableMandis(result?.mandis || []);
-
-      return {
-        ...crop,
-        usableMandiCount: usableMandis.length,
-        hasUsableData: usableMandis.length > 0,
-      };
+      const result = await fetchAvailableMandis(crop.id, state);
+      const hasUsableMandi = (result?.mandis || []).some((mandi) => mandi.isUsable);
+      return hasUsableMandi ? crop : null;
     })
   );
 
-  return cropStatus.filter((crop) => crop.hasUsableData);
+  return results.filter(Boolean);
 }

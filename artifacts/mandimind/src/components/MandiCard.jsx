@@ -1,6 +1,6 @@
 import { useLanguage } from "../context/LanguageContext";
 
-export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, stale, isBest, rank, freshnessText }) {
+export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, stale, freshnessDays, isBest, rank, freshnessText }) {
   const { t } = useLanguage();
 
   const displayPrice = todayPrice > 0 ? `₹${todayPrice.toLocaleString("en-IN")}` : "—";
@@ -8,8 +8,10 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
 
   return (
     <div
-      className={`bg-white rounded-xl p-4 shadow-sm border transition-all ${
-        isBest ? "border-green-500 ring-2 ring-green-100" : "border-gray-200"
+      className={`rounded-xl p-4 shadow-sm border transition-all ${
+        stale ? "bg-amber-50/60 border-amber-200" : "bg-white border-gray-200"
+      } ${
+        isBest ? "border-green-500 ring-2 ring-green-100" : ""
       }`}
     >
       <div className="flex justify-between items-start mb-3">
@@ -42,9 +44,9 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
               {freshnessText}
             </span>
           )}
-          {stale && (
+          {stale && !freshnessText && (
             <span className="bg-amber-50 text-amber-600 text-[10px] px-2 py-0.5 rounded-full font-medium">
-              ⚠️ Stale
+              {freshnessDays ? `${freshnessDays} day${freshnessDays > 1 ? "s" : ""} old` : "Latest available"}
             </span>
           )}
         </div>
@@ -53,7 +55,7 @@ export default function MandiCard({ mandi, todayPrice, avgPrice, lastUpdated, st
       <div className="flex justify-between items-end">
         <div>
           <p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {t.todayPrice}
+            {stale ? "Latest price" : t.todayPrice}
           </p>
           <p className="text-2xl font-extrabold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
             {displayPrice}

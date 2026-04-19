@@ -3,13 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { getCropById } from "../data/mockPrices";
 import { getDecision } from "../utils/decisionEngine";
-import { fetchPrices } from "../utils/api";
-import {
-  classifyPriceRows,
-  fetchClassifiedMandis,
-  getUsableMandis,
-  DATA_FRESHNESS,
-} from "../utils/mandiAvailability";
+import { fetchPrices, fetchCompare } from "../utils/api";
+import { getMandiAvailabilityFromRecords } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
@@ -61,7 +56,14 @@ export default function Decision() {
     [prices, quality, harvest, storage, urgency, variety, cropId]
   );
 
-  const mandiDataStatus = useMemo(() => classifyPriceRows(livePrices ?? []), [livePrices]);
+  const mandiDataStatus = useMemo(() => {
+    const availability = getMandiAvailabilityFromRecords(livePrices, { maxFreshnessDays: 3 });
+    if (!availability.isUsable) return { type: "unavailable", isUsable: false };
+    return {
+      ...availability,
+      type: availability.bucket === "live_today" ? "today" : "fallback_recent",
+    };
+  }, [livePrices]);
 
   // ── Mandi comparison from Cloudflare Worker (/api/compare) ───────────────
   const [mandiCompare, setMandiCompare] = useState([]);
@@ -69,41 +71,28 @@ export default function Decision() {
   const [compareError, setCompareError] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-
     setCompareLoading(true);
     setCompareError(false);
 
-    fetchClassifiedMandis(cropId, stateVal, { compareDays: 7 })
+    fetchCompare(cropId, stateVal, 7)
       .then((res) => {
-        if (cancelled) return;
-
         if (res.source === "error") {
-          console.error("[MandiMind] fetchClassifiedMandis error:", res.error);
+          console.error("[MandiMind] fetchCompare error:", res.error);
           setCompareError(true);
-          return;
+        } else if (res.mandis?.length) {
+          setMandiCompare(res.mandis.slice(0, 5));
         }
-
-        const usable = getUsableMandis(res.mandis || []).slice(0, 5);
-        setMandiCompare(usable);
       })
       .catch((err) => {
-        if (cancelled) return;
-        console.error("[MandiMind] fetchClassifiedMandis caught:", err);
+        console.error("[MandiMind] fetchCompare caught:", err);
         setCompareError(true);
       })
-      .finally(() => {
-        if (!cancelled) setCompareLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      .finally(() => setCompareLoading(false));
   }, [cropId, stateVal]);
 
   const hasUsableMandiData = mandiDataStatus.isUsable;
-  const usesTodayData = mandiDataStatus.freshness === DATA_FRESHNESS.LIVE;
-  const usesFallbackData = mandiDataStatus.freshness === DATA_FRESHNESS.RECENT;
+  const usesTodayData = mandiDataStatus.type === "today";
+  const usesFallbackData = mandiDataStatus.type === "fallback_recent";
   const forceNotEnoughData = !hasUsableMandiData;
 
   const currentPrice = hasUsableMandiData
