@@ -21,6 +21,33 @@ function parsePrice(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function getProfitTone(profitPerKg) {
+  if (profitPerKg <= 0) {
+    return {
+      card: "bg-red-100 text-red-900",
+      label: "text-red-700",
+    };
+  }
+
+  if (profitPerKg <= 2) {
+    return {
+      card: "bg-yellow-100 text-yellow-900",
+      label: "text-yellow-700",
+    };
+  }
+
+  return {
+    card: "bg-green-100 text-green-900",
+    label: "text-green-700",
+  };
+}
+
+function getRecommendationDisplay(recommendation) {
+  if (recommendation === "EXPORT") return "🚀 EXPORT";
+  if (recommendation === "SELL LOCAL") return "📦 SELL LOCAL";
+  return "⚠️ WAIT";
+}
+
 export default function Forecast() {
   const cropList = getCropNames();
   const [selectedCrop, setSelectedCrop] = useState(cropList[0]?.id || "onion");
@@ -128,6 +155,9 @@ export default function Forecast() {
     };
   }, [canCalculate, baseMandiPricePerKg, selectedCountry, safeQuantity]);
 
+  const profitTone = getProfitTone(calculations.profitPerKg);
+  const recommendationText = getRecommendationDisplay(calculations.recommendation);
+
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div className="px-4 pt-6 pb-4">
@@ -192,19 +222,22 @@ export default function Forecast() {
           <p className="text-xs text-green-100">Total Profit</p>
           <p className="text-3xl font-extrabold mt-1">₹{Math.round(calculations.totalProfit).toLocaleString("en-IN")}</p>
           <div className="grid grid-cols-3 gap-2 mt-4 text-center">
-            <div className="bg-white/10 rounded-lg p-2">
-              <p className="text-[10px] text-green-100">Profit/kg</p>
+            <div className={`${profitTone.card} rounded-lg p-2`}>
+              <p className={`text-[10px] ${profitTone.label}`}>Profit/kg</p>
               <p className="text-sm font-bold">₹{calculations.profitPerKg.toFixed(2)}</p>
             </div>
-            <div className="bg-white/10 rounded-lg p-2">
-              <p className="text-[10px] text-green-100">Profit %</p>
+            <div className={`${profitTone.card} rounded-lg p-2`}>
+              <p className={`text-[10px] ${profitTone.label}`}>Profit %</p>
               <p className="text-sm font-bold">{calculations.profitPercent.toFixed(1)}%</p>
             </div>
             <div className="bg-white/10 rounded-lg p-2">
               <p className="text-[10px] text-green-100">Recommendation</p>
-              <p className="text-sm font-bold">{calculations.recommendation}</p>
+              <p className="text-lg sm:text-xl font-extrabold tracking-wide">{recommendationText}</p>
             </div>
           </div>
+          <p className="text-[11px] text-green-100 mt-3 leading-relaxed">
+            Estimates based on mandi prices and heuristic export models. Actual profits may vary.
+          </p>
           <div className="mt-3 space-y-1">
             <p className="text-xs text-green-100">
               Confidence Level: <span className="font-semibold text-white">{calculations.confidenceLevel}</span>
