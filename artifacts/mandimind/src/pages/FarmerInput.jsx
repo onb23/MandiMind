@@ -23,7 +23,7 @@ export default function FarmerInput() {
   const [quantity, setQuantity] = useState("");
 
   const handleSubmit = () => {
-    if (quality && harvest && storage && urgency) {
+    if (hasRequiredSelection && quality && harvest && storage && urgency) {
       const params = new URLSearchParams({
         crop: cropId, mandi, state: stateVal, variety,
         quality, harvest, storage, urgency,
@@ -33,7 +33,8 @@ export default function FarmerInput() {
     }
   };
 
-  const isFormValid = quality && harvest && storage && urgency;
+  const hasRequiredSelection = Boolean(cropId && mandi);
+  const isFormValid = hasRequiredSelection && quality && harvest && storage && urgency;
 
   const RadioGroup = ({ options, value, onChange }) => (
     <div className="flex gap-2 flex-wrap">
