@@ -845,15 +845,23 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/debug") {
-      return new Response(
-        JSON.stringify({ ok: true, route: "debug-live" }),
-        {
-          headers: { "content-type": "application/json" },
-        }
-      );
-    }
+  const rows = await fetchDataGovPaginated(env, {
+    limit: 500,
+    maxOffset: 1000,
+  });
 
-    // rest of your existing routes...
+  return new Response(
+    JSON.stringify({
+      total: rows.length,
+      sample: rows.slice(0, 10),
+    }),
+    {
+      headers: { "content-type": "application/json" },
+    }
+  );
+}
+
+    
     const path   = url.pathname;
     const params = url.searchParams;
 
