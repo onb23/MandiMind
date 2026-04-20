@@ -157,30 +157,64 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
   }
 
   try {
-    const cropMatchedRecords = await fetchDataGov(
+  let cropMatchedRecords = await fetchDataGov(
+    env.DATA_GOV_API_KEY,
+    commodity,
+    market,
+    state,
+    Math.max(days, 200)
+  );
+
+  if (!cropMatchedRecords.length && market) {
+    const broader = await fetchDataGov(
       env.DATA_GOV_API_KEY,
       commodity,
-      market,
+      "",
       state,
-      Math.max(days, 200)
+      1000
     );
 
-    console.log(
-      JSON.stringify({
-        route: "/api/prices",
-        selectedCrop: crop,
-        normalizedSelectedCrop: normalizeCommodity(commodity),
-        sampleCommodityValues: sampleCommodityValues(cropMatchedRecords),
-        matchedRows: cropMatchedRecords.length,
-      })
+    const requestedMarket = normalizeCommodity(market);
+
+    cropMatchedRecords = broader.filter((r) =>
+      normalizeCommodity(r.market).includes(requestedMarket)
     );
-let cropMatchedRecords = await fetchDataGov(
-  env.DATA_GOV_API_KEY,
-  commodity,
-  market,
-  state,
-  Math.max(days, 200)
-);
+  }
+
+  console.log(
+    JSON.stringify({
+      route: "/api/prices",
+      selectedCrop: crop,
+      normalizedSelectedCrop: normalizeCommodity(commodity),
+      requestedMarket: market,
+      matchedRows: cropMatchedRecords.length,
+      sampleMarkets: [...new Set(cropMatchedRecords.map((r) => r.market))].slice(0, 10),
+    })
+  );
+
+  const trimmed = cropMatchedRecords.slice(-days);
+  const prices = trimmed.map((r) => r.modal_price);
+  const latest = trimmed[trimmed.length - 1] ?? null;
+
+  const data = {
+    data: trimmed,
+    currentPrice: latest?.modal_price ?? null,
+    priceRange: {
+      low: prices.length ? Math.min(...prices) : null,
+      high: prices.length ? Math.max(...prices) : null,
+    },
+    lastUpdated: latest?.date ?? null,
+    stale: latest ? isDataStale(latest.date) : true,
+    source: "live",
+  };
+
+  cache.set(cacheKey, { data, ts: Date.now() });
+  return json(data);
+} catch {
+  if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
+  return json({ error: "data.gov.in unavailable", data: [], source: "error" }, 502);
+}
+    
 
 if (!cropMatchedRecords.length && market) {
   const broader = await fetchDataGov(
