@@ -35,6 +35,10 @@ function getConfidenceReason({ score, confidenceLevel, hasFallbackData, decision
 export default function DecisionCard({
   decision,
   score,
+  confidenceScore = null,
+  classification = "",
+  keyReasons = [],
+  riskExplanation = "",
   confidencePenalty = 0,
   disallowHighConfidence = false,
 }) {
@@ -85,6 +89,7 @@ export default function DecisionCard({
           : confidenceReason === "medium"
             ? t.confidenceReasonMedium.replace("{score}", score)
             : t.confidenceReasonLow.replace("{score}", score);
+  const confidencePercent = Number.isFinite(confidenceScore) ? confidenceScore : score;
 
   return (
     <div className={`${c.bg} rounded-2xl p-6 text-white shadow-xl ${c.glow}`}>
@@ -110,11 +115,28 @@ export default function DecisionCard({
         <span className="text-xs tracking-wide opacity-80">
           {t.confidence.toUpperCase()}: {" "}
         </span>
-        <span className="text-sm font-bold tracking-wide">{confidence.label}</span>
+        <span className="text-sm font-bold tracking-wide">{confidence.label} ({confidencePercent}%)</span>
       </div>
+      {classification ? (
+        <p className="text-xs mt-2 font-semibold" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          {classification}
+        </p>
+      ) : null}
       <p className="text-xs mt-2 opacity-90" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
         {confidenceReasonText}
       </p>
+      {Array.isArray(keyReasons) && keyReasons.length > 0 ? (
+        <ul className="text-xs mt-2 space-y-1 list-disc pl-4 opacity-95" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          {keyReasons.slice(0, 3).map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      ) : null}
+      {riskExplanation ? (
+        <p className="text-xs mt-2 opacity-90" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          {riskExplanation}
+        </p>
+      ) : null}
     </div>
   );
 }

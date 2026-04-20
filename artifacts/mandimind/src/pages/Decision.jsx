@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { getCropById } from "../data/mockPrices";
-import { getDecision } from "../utils/decisionEngine";
+import { getDecision, getDecisionStrengthModel } from "../utils/decisionEngine";
 import { fetchPrices, fetchCompare } from "../utils/api";
 import { getMandiAvailabilityFromRecords } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
@@ -87,6 +87,12 @@ export default function Decision() {
 
   // ── Mandi comparison from Cloudflare Worker (/api/compare) ───────────────
   const [mandiCompare, setMandiCompare] = useState([]);
+  const [compareMeta, setCompareMeta] = useState({
+    confidenceScore: null,
+    source: "fallback",
+    freshnessDays: null,
+    priceVariance: null,
+  });
   const [compareLoading, setCompareLoading] = useState(true);
   const [compareError, setCompareError] = useState("");
 
@@ -108,16 +114,40 @@ export default function Decision() {
           console.error("[MandiMind] fetchCompare error:", message);
           setCompareError(message);
           setMandiCompare([]);
+          setCompareMeta({
+            confidenceScore: null,
+            source: "fallback",
+            freshnessDays: null,
+            priceVariance: null,
+          });
         } else if (res.mandis?.length) {
-          setMandiCompare(res.mandis.slice(0, 5));
+          setMandiCompare(res.mandis);
+          setCompareMeta({
+            confidenceScore: Number.isFinite(res.confidenceScore) ? res.confidenceScore : null,
+            source: res.source || "fallback",
+            freshnessDays: Number.isFinite(res.freshnessDays) ? res.freshnessDays : null,
+            priceVariance: Number.isFinite(res.priceVariance) ? res.priceVariance : null,
+          });
         } else {
           setMandiCompare([]);
+          setCompareMeta({
+            confidenceScore: null,
+            source: res.source || "fallback",
+            freshnessDays: Number.isFinite(res.freshnessDays) ? res.freshnessDays : null,
+            priceVariance: Number.isFinite(res.priceVariance) ? res.priceVariance : null,
+          });
         }
       })
       .catch((err) => {
         console.error("[MandiMind] fetchCompare caught:", err);
         setCompareError(t.liveMandiTemporarilyUnavailable);
         setMandiCompare([]);
+        setCompareMeta({
+          confidenceScore: null,
+          source: "fallback",
+          freshnessDays: null,
+          priceVariance: null,
+        });
       })
       .finally(() => setCompareLoading(false));
   }, [cropId, stateVal, t.liveMandiTemporarilyUnavailable]);
@@ -167,6 +197,20 @@ export default function Decision() {
     : null;
 
   const bestOpportunity = mandiCompare.length > 0 ? mandiCompare[0] : null;
+  const selectedMandiSummary = mandiCompare.find(
+    (row) => (row?.mandi || "").toLowerCase() === mandi.toLowerCase()
+  ) || null;
+  const spread = bestOpportunity && Number.isFinite(bestOpportunity.todayPrice) && Number.isFinite(currentPrice)
+    ? bestOpportunity.todayPrice - currentPrice
+    : null;
+  const decisionStrength = getDecisionStrengthModel({
+    spread,
+    variance7d: selectedMandiSummary?.variance7d ?? compareMeta.priceVariance,
+    confidenceScore: compareMeta.confidenceScore ?? decisionResult.score,
+    source: compareMeta.source,
+    freshnessDays: compareMeta.freshnessDays,
+    mandiCount: mandiCompare.length,
+  });
   const coverageCount = mandiCompare.length > 0 ? mandiCompare.length : (mandi ? 1 : 0);
   const decisionUrgency = urgency === "need_money"
     ? { label: t.high, className: "bg-red-100 text-red-700 border-red-200" }
@@ -254,6 +298,10 @@ https://mandimind.pages.dev/`;
         <DecisionCard
           decision={decisionResult.decision}
           score={decisionResult.score}
+          confidenceScore={decisionStrength.confidenceScore}
+          classification={decisionStrength.classification}
+          keyReasons={decisionStrength.keyReasons}
+          riskExplanation={decisionStrength.riskExplanation}
           confidencePenalty={usesFallbackData ? 1 : 0}
           disallowHighConfidence={usesFallbackData}
         />
@@ -472,7 +520,7 @@ https://mandimind.pages.dev/`;
               {t.topMandis}
             </h3>
             <div className="space-y-2">
-              {mandiCompare.map((m, idx) => (
+              {mandiCompare.slice(0, 5).map((m, idx) => (
                 <div key={m.mandi || idx}
                   className={`flex items-center justify-between rounded-xl px-3 py-2.5 ${
                     idx === 0 ? "bg-[#004c22] text-white" : "bg-gray-50"
