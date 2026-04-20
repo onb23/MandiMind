@@ -3,7 +3,7 @@ import { getCropNames } from "../data/mockPrices";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_STATE = "Maharashtra";
-const DEFAULT_MAX_FRESHNESS_DAYS = 3;
+const DEFAULT_MAX_FRESHNESS_DAYS = 7;
 
 export const DATA_FRESHNESS = {
   LIVE: "LIVE",
@@ -18,8 +18,8 @@ export const PRICE_MODE = {
 export function getFreshnessMessage(freshnessDays) {
   if (!Number.isFinite(freshnessDays)) return "Showing latest available";
   if (freshnessDays === 0) return "Today’s data";
-  if (freshnessDays <= 3) return "Last 3 days";
-  return `Showing latest available (${freshnessDays} days old)`;
+  if (freshnessDays <= DEFAULT_MAX_FRESHNESS_DAYS) return "Recent mode (up to 7 days)";
+  return `Showing latest available data (${freshnessDays} days old)`;
 }
 
 export function parseArrivalDate(dateStr) {
@@ -93,7 +93,7 @@ export function getMandiAvailabilityFromRecords(records, options = {}) {
     (row) => startOfDay(row.parsedDate).getTime() === today.getTime()
   );
 
-  const latestWithinThreeDays = normalizedRecords.find((row) => {
+  const latestWithinWindow = normalizedRecords.find((row) => {
     const freshnessDays = getFreshnessDays(row.parsedDate, today);
     return freshnessDays >= 1 && freshnessDays <= maxFreshnessDays;
   });
@@ -102,12 +102,12 @@ export function getMandiAvailabilityFromRecords(records, options = {}) {
     ? { isUsable: true, price: liveToday.price, date: liveToday.date, freshnessDays: 0 }
     : { isUsable: false, price: null, date: null, freshnessDays: null };
 
-  const latestOption = latestWithinThreeDays
+  const latestOption = latestWithinWindow
     ? {
-      isUsable: true,
-      price: latestWithinThreeDays.price,
-      date: latestWithinThreeDays.date,
-      freshnessDays: getFreshnessDays(latestWithinThreeDays.parsedDate, today),
+        isUsable: true,
+        price: latestWithinWindow.price,
+        date: latestWithinWindow.date,
+        freshnessDays: getFreshnessDays(latestWithinWindow.parsedDate, today),
     }
     : { isUsable: false, price: null, date: null, freshnessDays: null };
 
