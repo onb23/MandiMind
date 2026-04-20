@@ -195,6 +195,15 @@ export function classifyPriceRows(priceRows = []) {
 }
 
 export async function fetchAvailableMandis(cropId, state = "Maharashtra", options = {}) {
+  if (typeof cropId !== "string" || !cropId.trim()) {
+    return {
+      mandis: [],
+      lastUpdated: null,
+      source: "error",
+      error: "crop is required",
+    };
+  }
+
   const {
     compareDays = 7,
     historyDays = 30,
