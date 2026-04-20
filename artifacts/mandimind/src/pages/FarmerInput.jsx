@@ -14,6 +14,7 @@ export default function FarmerInput() {
 
   const cropInfo  = getCropById(cropId);
   const varieties = getVarietiesByCrop(cropId);
+  const varietyOptions = [...varieties, "Other", "Not sure"];
 
   const [variety,  setVariety]  = useState(varieties[0] || "");
   const [quality,  setQuality]  = useState("");
@@ -87,7 +88,7 @@ export default function FarmerInput() {
         {varieties.length > 0 && (
           <Section label={t.variety}>
             <div className="flex gap-2 flex-wrap">
-              {varieties.map((v) => (
+              {varietyOptions.map((v) => (
                 <button key={v} onClick={() => setVariety(v)}
                   className={`py-2.5 px-3 rounded-xl text-sm font-medium border transition-all ${
                     variety === v ? "bg-[#004c22] text-white border-[#004c22]" : "bg-white text-[#1e1c10] border-gray-300"
@@ -100,6 +101,11 @@ export default function FarmerInput() {
             {variety && (
               <p className="text-xs text-gray-400 mt-1.5 pl-1">
                 {t.selectedLabel}: <span className="font-semibold text-[#004c22]">{variety}</span>
+              </p>
+            )}
+            {(variety === "Other" || variety === "Not sure") && (
+              <p className="text-xs text-gray-500 mt-1.5 pl-1">
+                Recommendation is based on general crop market data, not a specific variety.
               </p>
             )}
           </Section>
