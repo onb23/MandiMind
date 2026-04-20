@@ -198,6 +198,25 @@ function toDisplayCropName(commodity: string): string {
   return COMMODITY_DISPLAY_MAP[commodity] || commodity;
 }
 
+function normalizeCommodity(value: string): string {
+  return (value ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function commodityMatches(selectedCrop: string, datasetCommodity: string): boolean {
+  const normalizedCrop = normalizeCommodity(selectedCrop);
+  const normalizedCommodity = normalizeCommodity(datasetCommodity);
+  if (!normalizedCrop || !normalizedCommodity) return false;
+  return normalizedCommodity.includes(normalizedCrop);
+}
+
+function sampleCommodityValues(records: PriceRecord[], sampleSize = 8): string[] {
+  return [...new Set(records.map((r) => (r.commodity ?? "").trim()).filter(Boolean))].slice(0, sampleSize);
+}
+
 interface PriceRecord {
   date: string;
   market: string;
@@ -307,10 +326,11 @@ router.get("/prices", async (req: Request, res: Response) => {
   }
 
   try {
-    const records = await fetchDataGov(commodity, market, state, Math.max(Number(days), 100));
-    const fallbackSelection = selectWithFallback(records);
+    const records = await fetchDataGov("", market, state, Math.max(Number(days), 200));
+    const cropMatchedRecords = records.filter((r) => commodityMatches(commodity, r.commodity));
+    const fallbackSelection = selectWithFallback(cropMatchedRecords);
     const numDays = Number(days) || 30;
-    const trimmed = (fallbackSelection.records.length > 0 ? fallbackSelection.records : records).slice(-numDays);
+    const trimmed = (fallbackSelection.records.length > 0 ? fallbackSelection.records : cropMatchedRecords).slice(-numDays);
     const todayDayTs = startOfUtcDayTs();
     const recentRangeCount = records.filter((r) => {
       const dayDiff = getDayDifference(r.date, todayDayTs);
@@ -319,7 +339,10 @@ router.get("/prices", async (req: Request, res: Response) => {
 
     logger.info({
       route: "/api/prices",
-      crop: commodity,
+      selectedCrop: crop,
+      normalizedSelectedCrop: normalizeCommodity(commodity),
+      sampleCommodityValues: sampleCommodityValues(records),
+      matchedRows: cropMatchedRecords.length,
       market,
       state,
       rawArrivalDatesSample: records.slice(0, 20).map((r) => r.date),
@@ -484,7 +507,7 @@ router.get("/compare", async (req: Request, res: Response) => {
       maxOffset: 5000,
     });
     const cropFilteredRecords = records.filter(
-      (r) => (r.commodity || "").trim().toLowerCase() === commodity.trim().toLowerCase()
+      (r) => commodityMatches(commodity, r.commodity)
     );
     const stateFilteredRecords = cropFilteredRecords.filter(
       (r) => (r.state || "").trim().toLowerCase() === state.trim().toLowerCase()
@@ -493,7 +516,9 @@ router.get("/compare", async (req: Request, res: Response) => {
     logger.info(
       {
         route: "/api/compare",
-        crop: commodity,
+        selectedCrop: crop,
+        normalizedSelectedCrop: normalizeCommodity(commodity),
+        sampleCommodityValues: sampleCommodityValues(records),
         state,
         totalRowsFetched: records.length,
         rowsAfterCropFilter: cropFilteredRecords.length,
