@@ -154,7 +154,6 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
 
   try {
     const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", market, state, Math.max(days, 200));
-    const cropMatchedRecords = records.filter((r) => commodityMatches(commodity, r.commodity));
     console.log(
       JSON.stringify({
         route: "/api/prices",
@@ -264,16 +263,17 @@ async function handleTrend(params: URLSearchParams, env: Env): Promise<Response>
 }
 
 async function handleCompare(params: URLSearchParams, env: Env): Promise<Response> {
-  const crop  = params.get("crop")  ?? "";
+  const crop  = params.get("crop") ?? "";
   const state = params.get("state") ?? "Maharashtra";
   const days  = Number(params.get("days") ?? "7");
+  const mode  = params.get("mode") ?? "recent"; // "today" | "recent"
 
   if (!crop) {
     return json({ error: "crop is required" }, 400);
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
-  const cacheKey  = `compare:${commodity}:${state}`;
+  const cacheKey  = `compare:${commodity}:${state}:${mode}:${days}`;
   const cached    = cache.get(cacheKey);
 
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -281,44 +281,79 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
   }
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 500);
-    const cropMatchedRecords = records.filter((r) => commodityMatches(commodity, r.commodity));
-    console.log(
-      JSON.stringify({
-        route: "/api/compare",
-        selectedCrop: crop,
-        normalizedSelectedCrop: normalizeCommodity(commodity),
-        sampleCommodityValues: sampleCommodityValues(records),
-        matchedRows: cropMatchedRecords.length,
-      })
-    );
-    if (!cropMatchedRecords.length) {
-      return json({ mandis: [], lastUpdated: null, source: "live" });
-    }
+    const today = new Date();
 
-    const latestModeWindowDays = 3;
-    const todayTs = new Date();
-    const recentDateKeys = Array.from({ length: latestModeWindowDays + 1 }, (_, offset) => {
-      const date = new Date(todayTs);
-      date.setDate(todayTs.getDate() - offset);
-      const dd = String(date.getDate()).padStart(2, "0");
-      const mm = String(date.getMonth() + 1).padStart(2, "0");
-      const yyyy = String(date.getFullYear());
+    const formatDate = (d: Date) => {
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yyyy = String(d.getFullYear());
       return `${dd}/${mm}/${yyyy}`;
+    };
+
+    const todayKey = formatDate(today);
+
+    const recentDateKeys = Array.from({ length: 3 }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(today.getDate() - (i + 1)); // 1,2,3 days ago only
+      return formatDate(d);
     });
 
-    const recentDateBatches = await Promise.all(
-      recentDateKeys.map((dateKey) => fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 500, dateKey))
+    const todayRows = await fetchDataGov(
+      env.DATA_GOV_API_KEY,
+      commodity,
+      "",
+      state,
+      500,
+      todayKey
     );
-    const mergedRecentRecords = recentDateBatches.flat().filter((r) => commodityMatches(commodity, r.commodity));
-    const mergedRecentKeys = new Set(
-      mergedRecentRecords.map((r) => `${r.market}|${r.date}|${r.modal_price}`)
+
+    const recentBatches = await Promise.all(
+      recentDateKeys.map((dateKey) =>
+        fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500, dateKey)
+      )
     );
-    const recentWindowRecords = [
-      ...mergedRecentRecords,
-      ...cropMatchedRecords.filter((r) => recentDateKeys.includes(r.date) && !mergedRecentKeys.has(`${r.market}|${r.date}|${r.modal_price}`)),
-    ];
-    const candidateRecords = recentWindowRecords.length > 0 ? recentWindowRecords : cropMatchedRecords;
+
+    const recentRows = recentBatches.flat();
+
+    let status:
+      | "today_has_data"
+      | "today_no_data_recent_exists"
+      | "today_no_data_no_recent"
+      | "recent_has_data"
+      | "recent_no_data";
+
+    let candidateRecords: PriceRecord[] = [];
+    let latestDate: string | null = null;
+
+    if (mode === "today") {
+      if (todayRows.length > 0) {
+        status = "today_has_data";
+        candidateRecords = todayRows;
+        latestDate = todayKey;
+      } else if (recentRows.length > 0) {
+        status = "today_no_data_recent_exists";
+        candidateRecords = [];
+        latestDate = recentRows
+          .map((r) => r.date)
+          .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+      } else {
+        status = "today_no_data_no_recent";
+        candidateRecords = [];
+        latestDate = null;
+      }
+    } else {
+      if (recentRows.length > 0) {
+        status = "recent_has_data";
+        candidateRecords = recentRows;
+        latestDate = recentRows
+          .map((r) => r.date)
+          .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+      } else {
+        status = "recent_no_data";
+        candidateRecords = [];
+        latestDate = null;
+      }
+    }
 
     const byMandi = new Map<string, PriceRecord[]>();
     for (const r of candidateRecords) {
@@ -326,35 +361,48 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       byMandi.get(r.market)!.push(r);
     }
 
-    const allDates  = candidateRecords.map(r => r.date);
-    const latestDate = allDates.sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0];
-
-    const mandiSummaries = Array.from(byMandi.entries())
+    const mandis = Array.from(byMandi.entries())
       .map(([mandi, recs]) => {
-        const sorted   = [...recs].sort((a, b) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
-        const latest   = sorted[sorted.length - 1];
-        const recent   = sorted.slice(-days);
-        const avgPrice = recent.length
-          ? Math.round(recent.reduce((s, r) => s + r.modal_price, 0) / recent.length)
+        const sorted = [...recs].sort((a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date));
+        const latest = sorted[0];
+        const recentSlice = sorted.slice(0, days);
+        const avgPrice = recentSlice.length
+          ? Math.round(recentSlice.reduce((sum, r) => sum + r.modal_price, 0) / recentSlice.length)
           : 0;
+
         return {
           mandi,
-          todayPrice:  latest.modal_price,
+          todayPrice: latest.modal_price,
           avgPrice,
           lastUpdated: latest.date,
-          stale:       isDataStale(latest.date),
+          stale: isDataStale(latest.date),
         };
       })
-      .filter(m => m.todayPrice > 0)
       .sort((a, b) => b.todayPrice - a.todayPrice);
 
-    const data = { mandis: mandiSummaries, lastUpdated: latestDate, source: "live" };
+    const data = {
+      crop: commodity,
+      state,
+      mode,
+      status,
+      lastUpdated: latestDate,
+      mandis,
+      todayCount: todayRows.length,
+      recentCount: recentRows.length,
+      source: "live",
+    };
+
     cache.set(cacheKey, { data, ts: Date.now() });
     return json(data);
 
-  } catch {
+  } catch (error) {
     if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
-    return json({ error: "data.gov.in unavailable", mandis: [], source: "error" }, 502);
+    return json({
+      error: "data.gov.in unavailable",
+      mandis: [],
+      status: "upstream_error",
+      source: "error"
+    }, 502);
   }
 }
 
@@ -369,7 +417,7 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 500);
+    const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500);
 
     const usable = records.filter(
       (r) =>
