@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode } from "../utils/mandiAvailability";
+import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
 import logo from "../assets/logo.svg";
 
 function FieldSkeleton() {
@@ -26,6 +26,7 @@ export default function Home() {
   const [cropError, setCropError] = useState("");
 
   const [mandiOptions, setMandiOptions] = useState([]);
+  const [mandiFreshnessDays, setMandiFreshnessDays] = useState(null);
   const [mandiLoading, setMandiLoading] = useState(false);
   const [mandiError, setMandiError] = useState("");
 
@@ -119,9 +120,11 @@ export default function Home() {
 
       if (result?.source === "error") {
         setMandiOptions([]);
+        setMandiFreshnessDays(null);
         setMandiError(t.liveMandiTemporarilyUnavailable);
       } else {
         setMandiOptions(result?.mandis || []);
+        setMandiFreshnessDays(Number.isFinite(result?.freshnessDays) ? result.freshnessDays : null);
         if (selectedMandi && !(result?.mandis || []).some((item) => item.mandi === selectedMandi)) {
           setSelectedMandi("");
         }
@@ -296,6 +299,11 @@ export default function Home() {
                 </p>
               )}
             </div>
+          )}
+          {selectedCrop && !mandiLoading && !mandiError && (
+            <p className="mb-2 text-xs text-blue-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              {getFreshnessMessage(mandiFreshnessDays)}
+            </p>
           )}
           <label
             className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-1.5"

@@ -16,8 +16,8 @@ export async function fetchCropUniverse(state = "Maharashtra", days = 15) {
 
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
     const data = await res.json();
+    if (!res.ok && !data?.crops) throw new Error(`HTTP ${res.status} from ${url}`);
     try {
       localStorage.setItem(
         `mm_crops_${state}_${days}`,
@@ -58,8 +58,8 @@ export async function fetchPrices(cropId, market, state = "Maharashtra", days = 
 
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
     const data = await res.json();
+    if (!res.ok && !data?.data) throw new Error(`HTTP ${res.status} from ${url}`);
     if (data.data?.length) {
       try {
         localStorage.setItem(
@@ -123,8 +123,8 @@ export async function fetchCompare(cropId, state = "Maharashtra", days = 7) {
 
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
     const data = await res.json();
+    if (!res.ok && !data?.mandis) throw new Error(`HTTP ${res.status} from ${url}`);
     try {
       localStorage.setItem(
         `mm_compare_${cropId}`,

@@ -34,6 +34,7 @@ const COMMODITY_DISPLAY_MAP: Record<string, string> = {
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const DAY_MS = 24 * 60 * 60 * 1000;
+const FALLBACK_WINDOWS = [3, 5, 7] as const;
 
 interface ParsedArrivalDate {
   ts: number;
@@ -97,6 +98,37 @@ function isDataStale(dateStr: string): boolean {
   const dayDiff = getDayDifference(dateStr);
   if (dayDiff === null) return true;
   return dayDiff > 2;
+}
+
+function selectWithFallback(records: PriceRecord[], todayTs = startOfUtcDayTs()) {
+  for (const windowDays of FALLBACK_WINDOWS) {
+    const filtered = records.filter((r) => {
+      const dayDiff = getDayDifference(r.date, todayTs);
+      return dayDiff !== null && dayDiff >= 0 && dayDiff <= windowDays;
+    });
+    if (filtered.length > 0) {
+      const latest = filtered[filtered.length - 1];
+      return {
+        records: filtered,
+        metadata: {
+          freshnessDays: latest ? getDayDifference(latest.date, todayTs) : null,
+          source: windowDays === 3 ? "live" as const : "fallback" as const,
+        },
+      };
+    }
+  }
+
+  const latestTs = records.reduce((max, row) => Math.max(max, parseArrivalDate(row.date)?.normalizedTs ?? 0), 0);
+  const latestRecords = records.filter((row) => (parseArrivalDate(row.date)?.normalizedTs ?? 0) === latestTs);
+  const latest = latestRecords[latestRecords.length - 1] ?? records[records.length - 1] ?? null;
+
+  return {
+    records: latestRecords.length > 0 ? latestRecords : records.slice(-1),
+    metadata: {
+      freshnessDays: latest ? getDayDifference(latest.date, todayTs) : null,
+      source: "fallback" as const,
+    },
+  };
 }
 
 function toDisplayCropName(commodity: string): string {
@@ -180,9 +212,9 @@ router.get("/prices", async (req: Request, res: Response) => {
 
   try {
     const records = await fetchDataGov(commodity, market, state, Math.max(Number(days), 100));
-
+    const fallbackSelection = selectWithFallback(records);
     const numDays = Number(days) || 30;
-    const trimmed = records.slice(-numDays);
+    const trimmed = (fallbackSelection.records.length > 0 ? fallbackSelection.records : records).slice(-numDays);
     const todayDayTs = startOfUtcDayTs();
     const recentRangeCount = records.filter((r) => {
       const dayDiff = getDayDifference(r.date, todayDayTs);
@@ -223,7 +255,8 @@ router.get("/prices", async (req: Request, res: Response) => {
       },
       lastUpdated: latest?.date ?? null,
       stale:       latest ? isDataStale(latest.date) : true,
-      source:      "live",
+      freshnessDays: fallbackSelection.metadata.freshnessDays,
+      source:      fallbackSelection.metadata.source,
     };
 
     cache.set(cacheKey, { data: responseData, ts: Date.now() });
@@ -236,8 +269,12 @@ router.get("/prices", async (req: Request, res: Response) => {
     }
     return res.status(502).json({
       error:  "data.gov.in unavailable",
-      data:   [],
-      source: "error",
+      data:   [{ date: "", market, commodity, price: 0, min_price: 0, max_price: 0, modal_price: 0 }],
+      currentPrice: null,
+      priceRange: { low: null, high: null },
+      lastUpdated: null,
+      freshnessDays: null,
+      source: "fallback",
     });
   }
 });
@@ -346,7 +383,12 @@ router.get("/compare", async (req: Request, res: Response) => {
     const records = await fetchDataGov(commodity, "", state, 500);
 
     if (!records.length) {
-      return res.json({ mandis: [], lastUpdated: null, source: "live" });
+      return res.json({
+        mandis: [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
+        lastUpdated: null,
+        freshnessDays: null,
+        source: "fallback",
+      });
     }
 
     const numDays = Number(days) || 7;
@@ -403,7 +445,8 @@ router.get("/compare", async (req: Request, res: Response) => {
       },
     }, "Recent window debug stats");
 
-    const candidateRecords = recentWindowRecords.length > 0 ? recentWindowRecords : records;
+    const fallbackSelection = selectWithFallback(recentWindowRecords.length > 0 ? recentWindowRecords : records);
+    const candidateRecords = fallbackSelection.records.length > 0 ? fallbackSelection.records : records;
 
     // Group by market
     const byMandi = new Map<string, PriceRecord[]>();
@@ -448,9 +491,12 @@ router.get("/compare", async (req: Request, res: Response) => {
     mandiSummaries.sort((a, b) => b.todayPrice - a.todayPrice);
 
     const responseData = {
-      mandis:      mandiSummaries,
+      mandis:      mandiSummaries.length > 0
+        ? mandiSummaries
+        : [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: latestDate ?? null, stale: true }],
       lastUpdated: latestDate,
-      source:      "live",
+      freshnessDays: fallbackSelection.metadata.freshnessDays,
+      source:      fallbackSelection.metadata.source,
     };
 
     cache.set(cacheKey, { data: responseData, ts: Date.now() });
@@ -463,8 +509,9 @@ router.get("/compare", async (req: Request, res: Response) => {
     }
     return res.status(502).json({
       error:   "data.gov.in unavailable",
-      mandis:  [],
-      source:  "error",
+      mandis:  [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
+      freshnessDays: null,
+      source:  "fallback",
     });
   }
 });

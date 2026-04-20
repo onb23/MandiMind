@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
+import { fetchAvailableCrops, fetchAvailableMandis, getFreshnessMessage } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
 import { useLanguage } from "../context/LanguageContext";
 
@@ -140,6 +140,7 @@ export default function Trade() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [mandis, setMandis] = useState([]);
+  const [tradeFreshnessDays, setTradeFreshnessDays] = useState(null);
   const [shareMessage, setShareMessage] = useState("");
   const inputSectionRef = useRef(null);
   const hasLowMandiAvailability = selectedCrop && !loading && !error && mandis.length > 0 && mandis.length <= 2;
@@ -190,10 +191,15 @@ export default function Trade() {
       const sortedMandis = result.mandis
         .map((item) => ({
           ...item,
-          todayPrice: parsePrice(item?.todayPrice),
+          todayPrice: parsePrice(item?.todayOption?.price ?? item?.todayPrice),
+          fallbackPrice: parsePrice(item?.latestOption?.price),
+          freshnessDays: Number.isFinite(item?.todayOption?.freshnessDays)
+            ? item.todayOption.freshnessDays
+            : item?.latestOption?.freshnessDays,
         }))
-        .filter((item) => item.todayPrice !== null)
-        .sort((a, b) => b.todayPrice - a.todayPrice)
+        .map((item) => ({ ...item, effectivePrice: item.todayPrice ?? item.fallbackPrice }))
+        .filter((item) => item.effectivePrice !== null)
+        .sort((a, b) => b.effectivePrice - a.effectivePrice)
         .slice(0, 3);
 
       if (sortedMandis.length === 0) {
@@ -201,6 +207,11 @@ export default function Trade() {
       }
 
       setMandis(sortedMandis);
+      setTradeFreshnessDays(
+        Number.isFinite(result?.freshnessDays)
+          ? result.freshnessDays
+          : (sortedMandis[0]?.freshnessDays ?? null)
+      );
       setLoading(false);
     }
 
@@ -211,11 +222,12 @@ export default function Trade() {
   }, [selectedCrop]);
 
   const selectedCountry = COUNTRIES.find((c) => c.id === country) || COUNTRIES[0];
-  const baseMandiPricePerQuintal = mandis[0]?.todayPrice ?? null;
+  const baseMandiPricePerQuintal = mandis[0]?.effectivePrice ?? null;
   const baseMandiPricePerKg = baseMandiPricePerQuintal !== null ? baseMandiPricePerQuintal / 100 : null;
   const safeQuantity = Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? Number(quantity) : 0;
   const dataCompleteness = mandis.length >= 3 ? "HIGH" : mandis.length >= 2 ? "MEDIUM" : "LOW";
   const canCalculate = baseMandiPricePerKg !== null && safeQuantity > 0 && !loading && !error && mandis.length > 0;
+  const dataConfidence = tradeFreshnessDays === 0 ? "HIGH" : (tradeFreshnessDays ?? 999) <= 3 ? "MEDIUM" : "LOW";
 
   const calculations = useMemo(() => {
     return calculateTradeMetrics({
@@ -244,7 +256,7 @@ Crop: ${selectedCropName}
 Country: ${selectedCountry.name}
 Estimated margin range: ${formatRange(calculations.totalMarginRange.min, calculations.totalMarginRange.max)}
 Decision: ${decisionLabel}
-Confidence: ${calculations.confidenceLevel}
+Confidence: ${dataConfidence}
 
 Check your trade:
 https://mandimind.pages.dev/trade`;
@@ -369,7 +381,7 @@ https://mandimind.pages.dev/trade`;
           <div className="grid grid-cols-2 gap-2 mt-2 text-center">
             <div className="bg-white/10 rounded-lg p-2">
               <p className="text-[10px] text-green-100">{t.confidence}</p>
-              <p className="text-lg font-extrabold tracking-wide">{calculations.confidenceLevel}</p>
+              <p className="text-lg font-extrabold tracking-wide">{dataConfidence}</p>
             </div>
             <div className="bg-white/10 rounded-lg p-2">
               <p className="text-[10px] text-green-100">{t.tradeDataCompleteness}</p>
@@ -396,7 +408,7 @@ https://mandimind.pages.dev/trade`;
               {mandis.map((mandi, index) => (
                 <div key={`${mandi.mandi}-${index}`} className="flex justify-between items-center bg-[#f8fafc] rounded-lg px-3 py-2">
                   <p className="text-sm font-medium text-[#1e1c10]">{index + 1}. {mandi.mandi}</p>
-                  <p className="text-sm font-bold text-[#004c22]">₹{mandi.todayPrice.toLocaleString("en-IN")}/quintal (₹{(mandi.todayPrice / 100).toFixed(2)}/kg)</p>
+                  <p className="text-sm font-bold text-[#004c22]">₹{mandi.effectivePrice.toLocaleString("en-IN")}/quintal (₹{(mandi.effectivePrice / 100).toFixed(2)}/kg)</p>
                 </div>
               ))}
             </div>
@@ -415,7 +427,7 @@ https://mandimind.pages.dev/trade`;
           </div>
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-1 text-[11px] text-gray-500">
             <p>📡 Data Source: Agmarknet (Govt. of India)</p>
-            <p>🕒 Last Updated: Today</p>
+            <p>🕒 {getFreshnessMessage(tradeFreshnessDays)}</p>
           </div>
         </section>
 
