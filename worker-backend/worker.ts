@@ -170,6 +170,25 @@ function sampleRecords(records: PriceRecord[], sampleSize = 5) {
   }));
 }
 
+function normalizeCommodity(value: string): string {
+  return (value ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function commodityMatches(selectedCrop: string, datasetCommodity: string): boolean {
+  const normalizedCrop = normalizeCommodity(selectedCrop);
+  const normalizedCommodity = normalizeCommodity(datasetCommodity);
+  if (!normalizedCrop || !normalizedCommodity) return false;
+  return normalizedCommodity.includes(normalizedCrop);
+}
+
+function sampleCommodityValues(records: PriceRecord[], sampleSize = 8): string[] {
+  return [...new Set(records.map((r) => (r.commodity ?? "").trim()).filter(Boolean))].slice(0, sampleSize);
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -274,9 +293,21 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
   }
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, market, state, Math.max(days, 100));
-    const { records: fallbackRecords, metadata } = selectWithFallback(records);
-    const trimmed = (fallbackRecords.length > 0 ? fallbackRecords : records).slice(-days);
+    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", market, state, Math.max(days, 200));
+    const cropMatchedRecords = records.filter((r) => commodityMatches(commodity, r.commodity));
+
+    console.log(
+      JSON.stringify({
+        route: "/api/prices",
+        selectedCrop: crop,
+        normalizedSelectedCrop: normalizeCommodity(commodity),
+        sampleCommodityValues: sampleCommodityValues(records),
+        matchedRows: cropMatchedRecords.length,
+      })
+    );
+
+    const { records: fallbackRecords, metadata } = selectWithFallback(cropMatchedRecords);
+    const trimmed = (fallbackRecords.length > 0 ? fallbackRecords : cropMatchedRecords).slice(-days);
     const prices  = trimmed.map(r => r.modal_price);
     const latest  = trimmed[trimmed.length - 1] ?? null;
 
@@ -408,7 +439,7 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       maxOffset: 5000,
     });
     const cropFilteredRecords = records.filter(
-      (r) => (r.commodity || "").trim().toLowerCase() === commodity.trim().toLowerCase()
+      (r) => commodityMatches(commodity, r.commodity)
     );
     const normalizedState = state.trim().toLowerCase();
     const stateFilteredRecords = cropFilteredRecords.filter((r) => {
@@ -422,7 +453,9 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
     console.log(
       JSON.stringify({
         route: "/api/compare",
-        crop: commodity,
+        selectedCrop: crop,
+        normalizedSelectedCrop: normalizeCommodity(commodity),
+        sampleCommodityValues: sampleCommodityValues(records),
         state,
         totalRowsFetched: records.length,
         rowsAfterCropFilter: cropFilteredRecords.length,
@@ -592,9 +625,7 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
     const upstreamLimit = 500;
     const upstreamRecords = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, upstreamLimit);
     const afterDateParsing = upstreamRecords.filter((r) => parseArrivalDate(r.date) > 0);
-    const afterCropFiltering = afterDateParsing.filter(
-      (r) => (r.commodity ?? "").trim().toLowerCase() === commodity.trim().toLowerCase()
-    );
+    const afterCropFiltering = afterDateParsing.filter((r) => commodityMatches(commodity, r.commodity));
     const afterMandiNormalization = afterCropFiltering.filter((r) => normalizeMarketName(r.market).length > 0);
     const usable = afterMandiNormalization.filter(
       (r) =>
@@ -615,15 +646,12 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
       const freshnessDays = getFreshnessDays(row.date, cropUniverseTodayTs);
       return freshnessDays !== null && freshnessDays >= 0 && freshnessDays <= cropUniverseWindowDays;
     });
-    const cropInRecentUniverse = cropUniverseRecent.some(
-      (row) => (row.commodity ?? "").trim().toLowerCase() === commodity.trim().toLowerCase(),
-    );
-    const cropInFetchedDataset = upstreamRecords.some(
-      (row) => (row.commodity ?? "").trim().toLowerCase() === commodity.trim().toLowerCase(),
-    );
+    const cropInRecentUniverse = cropUniverseRecent.some((row) => commodityMatches(commodity, row.commodity));
+    const cropInFetchedDataset = upstreamRecords.some((row) => commodityMatches(commodity, row.commodity));
 
     const pipelineTrace = {
       crop: commodity,
+      normalizedSelectedCrop: normalizeCommodity(commodity),
       state,
       fetchScope: {
         resultLimitPerRequest: upstreamLimit,
@@ -635,6 +663,8 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
         cropInRecentUniverse,
         cropInFetchedDataset,
         cropUniverseWindowDays,
+        sampleCommodityValues: sampleCommodityValues(upstreamRecords),
+        matchedRowsAfterCropFilter: afterCropFiltering.length,
       },
       stages: {
         rawUpstreamFetched: { count: upstreamRecords.length, sample: sampleRecords(upstreamRecords) } satisfies RecommendationTraceStage,

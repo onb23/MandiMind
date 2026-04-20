@@ -60,6 +60,25 @@ function isDataStale(dateStr: string): boolean {
   return ts < Date.now() - 2 * 24 * 60 * 60 * 1000;
 }
 
+function normalizeCommodity(value: string): string {
+  return (value ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function commodityMatches(selectedCrop: string, datasetCommodity: string): boolean {
+  const normalizedCrop = normalizeCommodity(selectedCrop);
+  const normalizedCommodity = normalizeCommodity(datasetCommodity);
+  if (!normalizedCrop || !normalizedCommodity) return false;
+  return normalizedCommodity.includes(normalizedCrop);
+}
+
+function sampleCommodityValues(records: PriceRecord[], sampleSize = 8): string[] {
+  return [...new Set(records.map((r) => (r.commodity ?? "").trim()).filter(Boolean))].slice(0, sampleSize);
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -134,8 +153,18 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
   }
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, market, state, Math.max(days, 100));
-    const trimmed = records.slice(-days);
+    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", market, state, Math.max(days, 200));
+    const cropMatchedRecords = records.filter((r) => commodityMatches(commodity, r.commodity));
+    console.log(
+      JSON.stringify({
+        route: "/api/prices",
+        selectedCrop: crop,
+        normalizedSelectedCrop: normalizeCommodity(commodity),
+        sampleCommodityValues: sampleCommodityValues(records),
+        matchedRows: cropMatchedRecords.length,
+      })
+    );
+    const trimmed = cropMatchedRecords.slice(-days);
     const prices  = trimmed.map(r => r.modal_price);
     const latest  = trimmed[trimmed.length - 1] ?? null;
 
@@ -252,8 +281,18 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
   }
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500);
-    if (!records.length) {
+    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 500);
+    const cropMatchedRecords = records.filter((r) => commodityMatches(commodity, r.commodity));
+    console.log(
+      JSON.stringify({
+        route: "/api/compare",
+        selectedCrop: crop,
+        normalizedSelectedCrop: normalizeCommodity(commodity),
+        sampleCommodityValues: sampleCommodityValues(records),
+        matchedRows: cropMatchedRecords.length,
+      })
+    );
+    if (!cropMatchedRecords.length) {
       return json({ mandis: [], lastUpdated: null, source: "live" });
     }
 
@@ -269,17 +308,17 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
     });
 
     const recentDateBatches = await Promise.all(
-      recentDateKeys.map((dateKey) => fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500, dateKey))
+      recentDateKeys.map((dateKey) => fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 500, dateKey))
     );
-    const mergedRecentRecords = recentDateBatches.flat();
+    const mergedRecentRecords = recentDateBatches.flat().filter((r) => commodityMatches(commodity, r.commodity));
     const mergedRecentKeys = new Set(
       mergedRecentRecords.map((r) => `${r.market}|${r.date}|${r.modal_price}`)
     );
     const recentWindowRecords = [
       ...mergedRecentRecords,
-      ...records.filter((r) => recentDateKeys.includes(r.date) && !mergedRecentKeys.has(`${r.market}|${r.date}|${r.modal_price}`)),
+      ...cropMatchedRecords.filter((r) => recentDateKeys.includes(r.date) && !mergedRecentKeys.has(`${r.market}|${r.date}|${r.modal_price}`)),
     ];
-    const candidateRecords = recentWindowRecords.length > 0 ? recentWindowRecords : records;
+    const candidateRecords = recentWindowRecords.length > 0 ? recentWindowRecords : cropMatchedRecords;
 
     const byMandi = new Map<string, PriceRecord[]>();
     for (const r of candidateRecords) {
@@ -330,16 +369,25 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500);
+    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 500);
 
     const usable = records.filter(
       (r) =>
         r &&
         r.market &&
         r.commodity &&
-        r.commodity.trim().toLowerCase() === commodity.trim().toLowerCase() &&
+        commodityMatches(commodity, r.commodity) &&
         r.modal_price !== null &&
         r.modal_price !== undefined
+    );
+    console.log(
+      JSON.stringify({
+        route: "/api/recommendation",
+        selectedCrop: crop,
+        normalizedSelectedCrop: normalizeCommodity(commodity),
+        sampleCommodityValues: sampleCommodityValues(records),
+        matchedRows: usable.length,
+      })
     );
 
     if (!usable.length) {
