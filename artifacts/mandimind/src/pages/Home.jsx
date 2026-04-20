@@ -33,10 +33,6 @@ export default function Home() {
   const visibleMandis = useMemo(() => {
     return getMandisForPriceMode(mandiOptions, priceType);
   }, [mandiOptions, priceType]);
-  const todayMandiCount = useMemo(
-    () => mandiOptions.filter((item) => item?.todayOption?.isUsable).length,
-    [mandiOptions]
-  );
   const hasVisibleMandis = visibleMandis.length > 0;
   const hasLowMandiAvailability = selectedCrop && !mandiLoading && !mandiError && mandiOptions.length > 0 && mandiOptions.length <= 2;
   const selectedRecentDate = useMemo(() => {
@@ -45,12 +41,7 @@ export default function Home() {
     if (selected?.latestOption?.date) return selected.latestOption.date;
     return visibleMandis[0]?.modeDate || null;
   }, [mandiOptions, selectedMandi, priceType, visibleMandis]);
-  const showTodayUpdatingNote = selectedCrop
-    && !mandiLoading
-    && !mandiError
-    && priceType === "today"
-    && mandiOptions.length > 0
-    && todayMandiCount < mandiOptions.length;
+  const showTodayUpdatingNote = priceType === "today";
   const showRecentInfoNote = selectedCrop
     && !mandiLoading
     && !mandiError
@@ -292,13 +283,13 @@ export default function Home() {
             </div>
           )}
           {selectedCrop && !mandiLoading && !mandiError && (showTodayUpdatingNote || showRecentInfoNote) && (
-            <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+            <div className="mb-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
               {showTodayUpdatingNote ? (
-                <p className="text-xs text-blue-800" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  {t.todayModeUpdatingNote}
+                <p className="text-xs text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                  Today’s mandi data updates gradually through the day. If some prices are missing, switch to ‘Latest available’ to see the most recent data.
                 </p>
               ) : (
-                <p className={`text-xs ${selectedRecentDate ? "text-blue-800" : "text-blue-600"}`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                <p className={`text-xs ${selectedRecentDate ? "text-gray-700" : "text-gray-600"}`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                   {selectedRecentDate
                     ? t.recentModeDateNote.replace("{date}", selectedRecentDate)
                     : t.recentModeDateUnavailable}
