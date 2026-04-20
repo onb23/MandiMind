@@ -154,6 +154,26 @@ export function getMandiAvailabilityFromRecords(records, options = {}) {
   return derived;
 }
 
+function getRecentWindowAverage(priceRows, recentWindowDays = DEFAULT_MAX_FRESHNESS_DAYS) {
+  const today = startOfDay(new Date());
+  const recentPrices = (priceRows ?? [])
+    .map((row) => {
+      const price = row.modal_price ?? row.price;
+      const parsedDate = parseArrivalDate(row.date);
+
+      if (!Number.isFinite(price) || !parsedDate) return null;
+
+      const freshnessDays = getFreshnessDays(parsedDate, today);
+      if (freshnessDays > recentWindowDays) return null;
+
+      return price;
+    })
+    .filter((price) => Number.isFinite(price));
+
+  if (!recentPrices.length) return null;
+  return Math.round(recentPrices.reduce((sum, price) => sum + price, 0) / recentPrices.length);
+}
+
 function getRecentValidHistoryCount(priceRows, recentWindowDays = 7) {
   const today = startOfDay(new Date());
 
@@ -236,6 +256,11 @@ export async function fetchAvailableMandis(cropId, state = "Maharashtra", option
   }
 
   const compareMandis = Array.isArray(compareResult?.mandis) ? compareResult.mandis : [];
+  const compareByMandi = new Map(
+    compareMandis
+      .filter((item) => typeof item?.mandi === "string" && item.mandi.trim())
+      .map((item) => [item.mandi.trim(), item])
+  );
   const mandiNames = compareMandis
     .map((item) => (typeof item?.mandi === "string" ? item.mandi.trim() : ""))
     .filter((name) => name && name !== "No mandi data");
@@ -258,6 +283,8 @@ export async function fetchAvailableMandis(cropId, state = "Maharashtra", option
   const mandiStatus = Array.from(groupedByMandi.entries()).map(([mandi, rows]) => {
     const derivedRows = deriveMandiRows(rows, { recentWindowDays });
     const recentHistoryCount = getRecentValidHistoryCount(rows, recentWindowDays);
+    const compareRow = compareByMandi.get(mandi) ?? null;
+    const recentWindowAverage = getRecentWindowAverage(rows, recentWindowDays);
     return {
       mandi,
       ...derivedRows,
@@ -272,18 +299,67 @@ export async function fetchAvailableMandis(cropId, state = "Maharashtra", option
       lastUpdated: derivedRows.latestAvailableRow?.date ?? null,
       availability: derivedRows.todayRow ? "full" : "fallback_recent",
       recentHistoryCount,
+      recentAveragePrice: recentWindowAverage,
+      compareTodayPrice: Number.isFinite(compareRow?.todayPrice) ? compareRow.todayPrice : null,
+      compareAvgPrice: Number.isFinite(compareRow?.avgPrice) ? compareRow.avgPrice : null,
+      compareFreshnessDays: Number.isFinite(compareRow?.freshnessDays) ? compareRow.freshnessDays : null,
       avgPrice: rows.length
         ? Math.round(rows.reduce((sum, row) => sum + row.price, 0) / rows.length)
-        : null,
+        : (Number.isFinite(compareRow?.avgPrice) ? compareRow.avgPrice : null),
     };
   });
 
   const newestCropRow = cropRows.sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime())[0] ?? null;
-  const freshnessDays = newestCropRow ? getFreshnessDays(newestCropRow.parsedDate) : null;
+  const fallbackFreshnessDays = compareMandis
+    .map((item) => (Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b)[0] ?? null;
+  const freshnessDays = newestCropRow ? getFreshnessDays(newestCropRow.parsedDate) : fallbackFreshnessDays;
+
+  const compareOnlyStatus = compareMandis
+    .filter((item) => {
+      const mandiName = typeof item?.mandi === "string" ? item.mandi.trim() : "";
+      return mandiName && !groupedByMandi.has(mandiName) && mandiName !== "No mandi data";
+    })
+    .map((item) => ({
+      mandi: item.mandi,
+      todayRow: null,
+      recentRow: null,
+      latestAvailableRow: null,
+      todayOption: { isUsable: false, price: null, date: null, freshnessDays: null },
+      latestOption: {
+        isUsable: Number.isFinite(item?.todayPrice),
+        price: Number.isFinite(item?.todayPrice) ? item.todayPrice : null,
+        date: item?.lastUpdated ?? null,
+        freshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
+      },
+      bucket: Number.isFinite(item?.todayPrice) ? "latest_available" : "unavailable",
+      isUsable: Number.isFinite(item?.todayPrice),
+      usedDate: item?.lastUpdated ?? null,
+      freshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
+      selectedPrice: Number.isFinite(item?.todayPrice) ? item.todayPrice : null,
+      todayPrice: null,
+      currentPrice: null,
+      latestPrice: Number.isFinite(item?.todayPrice) ? item.todayPrice : null,
+      todayDate: null,
+      latestDate: item?.lastUpdated ?? null,
+      latestFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
+      lastUpdated: item?.lastUpdated ?? null,
+      availability: Number.isFinite(item?.todayPrice) ? "fallback_recent" : "unavailable",
+      recentHistoryCount: 0,
+      recentAveragePrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
+      compareTodayPrice: Number.isFinite(item?.todayPrice) ? item.todayPrice : null,
+      compareAvgPrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
+      compareFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
+      avgPrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
+    }));
+
+  const mergedMandiStatus = [...mandiStatus, ...compareOnlyStatus];
+
 
   return {
     ...compareResult,
-    mandis: mandiStatus,
+    mandis: mergedMandiStatus,
     freshnessDays,
   };
 }

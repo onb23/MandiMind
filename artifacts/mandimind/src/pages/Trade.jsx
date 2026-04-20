@@ -22,6 +22,14 @@ function parsePrice(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function getDataConfidence({ canCalculate, priceSource, freshnessDays }) {
+  if (!canCalculate) return "UNAVAILABLE";
+  if (priceSource === "today" && freshnessDays === 0) return "HIGH";
+  if (freshnessDays === 1) return "MEDIUM-HIGH";
+  if (Number.isFinite(freshnessDays) && freshnessDays >= 2 && freshnessDays <= 3) return "MEDIUM";
+  return "LOW";
+}
+
 function getDecisionTone(decision) {
   if (decision === "CANNOT_GENERATE") {
     return {
@@ -189,15 +197,37 @@ export default function Trade() {
       }
 
       const sortedMandis = result.mandis
-        .map((item) => ({
-          ...item,
-          todayPrice: parsePrice(item?.todayOption?.price ?? item?.todayPrice),
-          fallbackPrice: parsePrice(item?.latestOption?.price),
-          freshnessDays: Number.isFinite(item?.todayOption?.freshnessDays)
-            ? item.todayOption.freshnessDays
-            : item?.latestOption?.freshnessDays,
-        }))
-        .map((item) => ({ ...item, effectivePrice: item.todayPrice ?? item.fallbackPrice }))
+        .map((item) => {
+          const todayPrice = parsePrice(item?.todayOption?.price ?? item?.todayPrice);
+          const recentPrice = parsePrice(
+            item?.latestOption?.price
+              ?? item?.compareTodayPrice
+              ?? item?.latestPrice
+          );
+          const effectivePrice = todayPrice ?? recentPrice;
+          const priceSource = todayPrice !== null
+            ? "today"
+            : recentPrice !== null
+              ? "recent"
+              : "unavailable";
+
+          const freshnessDays = priceSource === "today"
+            ? 0
+            : Number.isFinite(item?.latestOption?.freshnessDays)
+              ? item.latestOption.freshnessDays
+              : Number.isFinite(item?.compareFreshnessDays)
+                ? item.compareFreshnessDays
+                : item?.latestFreshnessDays;
+
+          return {
+            ...item,
+            todayPrice,
+            recentPrice,
+            effectivePrice,
+            priceSource,
+            freshnessDays,
+          };
+        })
         .filter((item) => item.effectivePrice !== null)
         .sort((a, b) => b.effectivePrice - a.effectivePrice)
         .slice(0, 3);
@@ -222,12 +252,27 @@ export default function Trade() {
   }, [selectedCrop]);
 
   const selectedCountry = COUNTRIES.find((c) => c.id === country) || COUNTRIES[0];
+  const bestMandi = mandis[0] ?? null;
   const baseMandiPricePerQuintal = mandis[0]?.effectivePrice ?? null;
   const baseMandiPricePerKg = baseMandiPricePerQuintal !== null ? baseMandiPricePerQuintal / 100 : null;
   const safeQuantity = Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? Number(quantity) : 0;
   const dataCompleteness = mandis.length >= 3 ? "HIGH" : mandis.length >= 2 ? "MEDIUM" : "LOW";
-  const canCalculate = baseMandiPricePerKg !== null && safeQuantity > 0 && !loading && !error && mandis.length > 0;
-  const dataConfidence = tradeFreshnessDays === 0 ? "HIGH" : (tradeFreshnessDays ?? 999) <= 3 ? "MEDIUM" : "LOW";
+  const hasFreshMandiSignal = mandis.some(
+    (item) => Number.isFinite(item?.freshnessDays) && item.freshnessDays <= 1
+  );
+  const hasReliableMandiCoverage = mandis.length >= 3 && hasFreshMandiSignal;
+  const canCalculate = baseMandiPricePerKg !== null && safeQuantity > 0 && !loading && !error && hasReliableMandiCoverage;
+  const rawDataConfidence = getDataConfidence({
+    canCalculate,
+    priceSource: bestMandi?.priceSource,
+    freshnessDays: bestMandi?.freshnessDays ?? tradeFreshnessDays,
+  });
+  const isTradeFallbackMode = !loading && !error && bestMandi && bestMandi.priceSource !== "today";
+  const showReliabilityWarning = !loading && !error && mandis.length > 0 && !hasReliableMandiCoverage;
+  const dataConfidence = showReliabilityWarning ? "LOW" : rawDataConfidence;
+  const mandiHeadingLabel = bestMandi?.priceSource === "recent" && Number(bestMandi?.freshnessDays) > 2
+    ? "Best mandi (based on recent data)"
+    : "Best Mandis (Top 3)";
 
   const calculations = useMemo(() => {
     return calculateTradeMetrics({
@@ -354,6 +399,11 @@ https://mandimind.pages.dev/trade`;
               <p className="text-xs text-amber-700">{t.noMandiGuidance}</p>
             </div>
           )}
+          {showReliabilityWarning && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <p className="text-sm text-amber-800 font-semibold">Market data is outdated — decision may not be reliable</p>
+            </div>
+          )}
           {hasLowMandiAvailability && (
             <p className="text-xs text-amber-700 font-medium">{t.lowCropAvailabilityWarning}</p>
           )}
@@ -391,10 +441,13 @@ https://mandimind.pages.dev/trade`;
           <p className="text-[11px] text-green-100 mt-3 leading-relaxed">{t.tradeApproximationNote}</p>
           {calculations.delayRiskNote && <p className="text-[11px] text-green-100/90 mt-2">{calculations.delayRiskNote}</p>}
           {!canCalculate && <p className="text-xs text-green-100 mt-3">{t.tradeCannotGenerateDecision}</p>}
+          {showReliabilityWarning && (
+            <p className="text-xs text-amber-100 mt-2">Market data is outdated — decision may not be reliable</p>
+          )}
         </section>
 
         <section className="bg-white border border-gray-200 rounded-xl p-4">
-          <h2 className="text-base font-bold text-[#1e1c10] mb-3">Best Mandis (Top 3)</h2>
+          <h2 className="text-base font-bold text-[#1e1c10] mb-3">{mandiHeadingLabel}</h2>
 
           {loading ? (
             <p className="text-sm text-gray-500">Fetching mandi prices…</p>
@@ -428,6 +481,9 @@ https://mandimind.pages.dev/trade`;
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-1 text-[11px] text-gray-500">
             <p>📡 Data Source: Agmarknet (Govt. of India)</p>
             <p>🕒 {getFreshnessMessage(tradeFreshnessDays)}</p>
+            {isTradeFallbackMode && (
+              <p className="text-amber-700 font-medium">Using latest available mandi data (not today&apos;s data)</p>
+            )}
           </div>
         </section>
 
