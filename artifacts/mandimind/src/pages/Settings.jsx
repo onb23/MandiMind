@@ -7,7 +7,7 @@ const profileLinks = {
 
 export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
-  const feedbackFormUrl = "https://docs.google.com/forms/u/0/";
+  const FEEDBACK_FORM_URL = "https://tally.so/r/LZMN1z";
 
   const languages = [
     { code: "en", name: "English" },
@@ -16,9 +16,21 @@ export default function Settings() {
   ];
 
   const feedbackActions = [
-    { label: "Report a problem", type: "bug" },
-    { label: "Suggest a feature", type: "feature" },
-    { label: "Business / partnership inquiry", type: "business" },
+    {
+      label: "Report a problem",
+      subtitle: "Something not working? Tell us",
+      type: "bug",
+    },
+    {
+      label: "Suggest a feature",
+      subtitle: "What should we build next?",
+      type: "feature",
+    },
+    {
+      label: "Business / partnership inquiry",
+      subtitle: "For traders, exporters, companies",
+      type: "business",
+    },
   ];
 
   return (
@@ -73,20 +85,17 @@ export default function Settings() {
               <button
                 key={action.type}
                 type="button"
-                onClick={() =>
-                  window.open(
-                    `${feedbackFormUrl}?type=${encodeURIComponent(action.type)}`,
-                    "_blank",
-                    "noopener,noreferrer",
-                  )
-                }
+                onClick={() => window.open(FEEDBACK_FORM_URL, "_blank", "noopener,noreferrer")}
                 className="block w-full rounded-xl border border-gray-300 px-4 py-4 text-left text-base font-medium text-[#1e1c10] transition-colors hover:bg-[#fff6df] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#004c22]"
                 style={{
                   fontFamily: "Be Vietnam Pro, sans-serif",
                   minHeight: "56px",
                 }}
               >
-                {action.label}
+                <span className="block">{action.label}</span>
+                <span className="mt-1 block text-sm font-normal text-gray-600">
+                  {action.subtitle}
+                </span>
               </button>
             ))}
           </div>
