@@ -410,9 +410,14 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
     const cropFilteredRecords = records.filter(
       (r) => (r.commodity || "").trim().toLowerCase() === commodity.trim().toLowerCase()
     );
-    const stateFilteredRecords = cropFilteredRecords.filter(
-      (r) => (r.state || "").trim().toLowerCase() === state.trim().toLowerCase()
-    );
+    const normalizedState = state.trim().toLowerCase();
+    const stateFilteredRecords = cropFilteredRecords.filter((r) => {
+      const rowState = (r.state || "").trim().toLowerCase();
+      if (!rowState || !normalizedState) return false;
+      return rowState.includes(normalizedState) || normalizedState.includes(rowState);
+    });
+    const usedStateFallback = stateFilteredRecords.length === 0;
+    const finalRows = usedStateFallback ? cropFilteredRecords : stateFilteredRecords;
 
     console.log(
       JSON.stringify({
@@ -422,10 +427,11 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
         totalRowsFetched: records.length,
         rowsAfterCropFilter: cropFilteredRecords.length,
         rowsAfterStateFilter: stateFilteredRecords.length,
+        usedStateFallback,
       })
     );
 
-    if (!stateFilteredRecords.length) {
+    if (!cropFilteredRecords.length) {
       return json({
         mandis: [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
         lastUpdated: null,
@@ -434,16 +440,20 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       });
     }
 
-    const selected = selectWithFallback(stateFilteredRecords);
-    const candidateRecords = selected.records.length > 0 ? selected.records : stateFilteredRecords;
+    const selected = selectWithFallback(finalRows);
+    const candidateRecords = selected.records.length > 0 ? selected.records : finalRows;
+    const usableRows = candidateRecords.filter(
+      (r) => Boolean(r.market && r.commodity && r.date)
+    );
+    const finalCandidateRows = usableRows.length > 0 ? usableRows : candidateRecords;
 
     const byMandi = new Map<string, PriceRecord[]>();
-    for (const r of candidateRecords) {
+    for (const r of finalCandidateRows) {
       if (!byMandi.has(r.market)) byMandi.set(r.market, []);
       byMandi.get(r.market)!.push(r);
     }
 
-    const allDates  = candidateRecords.map(r => r.date);
+    const allDates  = finalCandidateRows.map(r => r.date);
     const latestDate = allDates.sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0];
 
     const mandiSummaries = Array.from(byMandi.entries())
@@ -462,7 +472,6 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
           stale:       isDataStale(latest.date),
         };
       })
-      .filter(m => m.todayPrice > 0)
       .sort((a, b) => b.todayPrice - a.todayPrice);
 
     const data = {
