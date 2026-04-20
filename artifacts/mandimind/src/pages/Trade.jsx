@@ -23,6 +23,13 @@ function parsePrice(value) {
 }
 
 function getDecisionTone(decision) {
+  if (decision === "CANNOT_GENERATE") {
+    return {
+      card: "bg-slate-100 text-slate-900",
+      label: "text-slate-700",
+    };
+  }
+
   if (decision === "NOT_PROFITABLE") {
     return {
       card: "bg-red-100 text-red-900",
@@ -51,15 +58,15 @@ function formatRange(min, max) {
 function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry, quantity }) {
   if (!canCalculate) {
     return {
-      estimatedSellPrice: 0,
-      indicativeSellPricePerKg: 0,
-      breakEvenSellingPricePerKg: 0,
-      marginRangePerKg: { min: 0, max: 0 },
-      totalMarginRange: { min: 0, max: 0 },
-      decision: "NOT_PROFITABLE",
-      riskLevel: "HIGH",
+      estimatedSellPrice: null,
+      indicativeSellPricePerKg: null,
+      breakEvenSellingPricePerKg: null,
+      marginRangePerKg: null,
+      totalMarginRange: null,
+      decision: "CANNOT_GENERATE",
+      riskLevel: "N/A",
       confidenceLevel: "LOW",
-      delayRiskNote: "",
+      delayRiskNote: null,
       keyReasons: [],
     };
   }
@@ -135,6 +142,7 @@ export default function Trade() {
   const [mandis, setMandis] = useState([]);
   const [shareMessage, setShareMessage] = useState("");
   const inputSectionRef = useRef(null);
+  const hasLowMandiAvailability = selectedCrop && !loading && !error && mandis.length > 0 && mandis.length <= 2;
 
   useEffect(() => {
     let cancelled = false;
@@ -174,7 +182,7 @@ export default function Trade() {
 
       if (result?.source === "error" || !Array.isArray(result?.mandis)) {
         setMandis([]);
-        setError("Data unavailable");
+        setError(t.tradeCannotGenerateDecision);
         setLoading(false);
         return;
       }
@@ -189,7 +197,7 @@ export default function Trade() {
         .slice(0, 3);
 
       if (sortedMandis.length === 0) {
-        setError("Data unavailable");
+        setError(t.tradeCannotGenerateDecision);
       }
 
       setMandis(sortedMandis);
@@ -207,7 +215,7 @@ export default function Trade() {
   const baseMandiPricePerKg = baseMandiPricePerQuintal !== null ? baseMandiPricePerQuintal / 100 : null;
   const safeQuantity = Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? Number(quantity) : 0;
   const dataCompleteness = mandis.length >= 3 ? "HIGH" : mandis.length >= 2 ? "MEDIUM" : "LOW";
-  const canCalculate = baseMandiPricePerKg !== null && safeQuantity > 0 && !loading && !error;
+  const canCalculate = baseMandiPricePerKg !== null && safeQuantity > 0 && !loading && !error && mandis.length > 0;
 
   const calculations = useMemo(() => {
     return calculateTradeMetrics({
@@ -223,7 +231,9 @@ export default function Trade() {
     ? t.tradeDecisionProfitable
     : calculations.decision === "MARGINAL"
       ? t.tradeDecisionMarginal
-      : t.tradeDecisionNotProfitable;
+      : calculations.decision === "CANNOT_GENERATE"
+        ? t.tradeCannotGenerateDecision
+        : t.tradeDecisionNotProfitable;
 
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
 
@@ -327,7 +337,13 @@ https://mandimind.pages.dev/trade`;
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 font-semibold">Data unavailable</p>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1">
+              <p className="text-sm text-amber-800 font-semibold">{t.tradeCannotGenerateDecision}</p>
+              <p className="text-xs text-amber-700">{t.noMandiGuidance}</p>
+            </div>
+          )}
+          {hasLowMandiAvailability && (
+            <p className="text-xs text-amber-700 font-medium">{t.lowCropAvailabilityWarning}</p>
           )}
         </div>
       </div>
@@ -339,7 +355,11 @@ https://mandimind.pages.dev/trade`;
           <div className="grid grid-cols-2 gap-2 mt-4 text-center">
             <div className={`${decisionTone.card} rounded-lg p-2`}>
               <p className={`text-[10px] ${decisionTone.label}`}>{t.tradeEstimatedMarginRange}</p>
-              <p className="text-xs font-bold">₹{calculations.marginRangePerKg.min.toFixed(1)} to ₹{calculations.marginRangePerKg.max.toFixed(1)}/kg</p>
+              <p className="text-xs font-bold">
+                {calculations.marginRangePerKg
+                  ? `₹${calculations.marginRangePerKg.min.toFixed(1)} to ₹${calculations.marginRangePerKg.max.toFixed(1)}/kg`
+                  : "—"}
+              </p>
             </div>
             <div className={`${decisionTone.card} rounded-lg p-2`}>
               <p className={`text-[10px] ${decisionTone.label}`}>{t.tradeRiskLevel}</p>
@@ -357,8 +377,8 @@ https://mandimind.pages.dev/trade`;
             </div>
           </div>
           <p className="text-[11px] text-green-100 mt-3 leading-relaxed">{t.tradeApproximationNote}</p>
-          <p className="text-[11px] text-green-100/90 mt-2">{calculations.delayRiskNote}</p>
-          {!canCalculate && <p className="text-xs text-green-100 mt-3">Calculation disabled until mandi data is available.</p>}
+          {calculations.delayRiskNote && <p className="text-[11px] text-green-100/90 mt-2">{calculations.delayRiskNote}</p>}
+          {!canCalculate && <p className="text-xs text-green-100 mt-3">{t.tradeCannotGenerateDecision}</p>}
         </section>
 
         <section className="bg-white border border-gray-200 rounded-xl p-4">
@@ -367,7 +387,10 @@ https://mandimind.pages.dev/trade`;
           {loading ? (
             <p className="text-sm text-gray-500">Fetching mandi prices…</p>
           ) : mandis.length === 0 ? (
-            <p className="text-sm text-gray-500">Data unavailable</p>
+            <div className="space-y-1">
+              <p className="text-sm text-gray-700">{t.tradeCannotGenerateDecision}</p>
+              <p className="text-xs text-gray-500">{t.noMandiGuidance}</p>
+            </div>
           ) : (
             <div className="space-y-2">
               {mandis.map((mandi, index) => (
@@ -383,12 +406,12 @@ https://mandimind.pages.dev/trade`;
         <section className="bg-white border border-gray-200 rounded-xl p-4">
           <h2 className="text-base font-bold text-[#1e1c10] mb-3">{t.tradeBreakdown}</h2>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">{t.tradeBuyPrice}</span><span className="font-semibold">₹{baseMandiPricePerQuintal?.toFixed(2) ?? "0.00"}/quintal (₹{baseMandiPricePerKg?.toFixed(2) ?? "0.00"}/kg)</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">{t.tradeSellEstimate}</span><span className="font-semibold">₹{calculations.estimatedSellPrice.toFixed(2)}/kg</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeBuyPrice}</span><span className="font-semibold">{baseMandiPricePerQuintal !== null ? `₹${baseMandiPricePerQuintal.toFixed(2)}/quintal (₹${baseMandiPricePerKg?.toFixed(2)}/kg)` : "—"}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">{t.tradeSellEstimate}</span><span className="font-semibold">{calculations.estimatedSellPrice !== null ? `₹${calculations.estimatedSellPrice.toFixed(2)}/kg` : "—"}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">{t.tradeRealizationApplied}</span><span className="font-semibold">{Math.round(selectedCountry.realizationFactor * 100)}%</span></div>
             <div className="flex justify-between"><span className="text-gray-500">{t.tradeTransitTime}</span><span className="font-semibold">{selectedCountry.transitDays} {t.tradeDays}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">{t.tradeCost}</span><span className="font-semibold">₹{selectedCountry.cost.toFixed(2)}/kg</span></div>
-            <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">{t.tradeBreakEvenPrice}</span><span className="font-bold text-[#004c22]">₹{calculations.breakEvenSellingPricePerKg.toFixed(2)}/kg</span></div>
+            <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">{t.tradeBreakEvenPrice}</span><span className="font-bold text-[#004c22]">{calculations.breakEvenSellingPricePerKg !== null ? `₹${calculations.breakEvenSellingPricePerKg.toFixed(2)}/kg` : "—"}</span></div>
           </div>
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-1 text-[11px] text-gray-500">
             <p>📡 Data Source: Agmarknet (Govt. of India)</p>
@@ -403,13 +426,14 @@ https://mandimind.pages.dev/trade`;
               <p key={reason} className="bg-[#f8fafc] rounded-lg px-3 py-2 text-gray-700">• {reason}</p>
             ))}
           </div>
-          {!canCalculate && <p className="text-xs text-gray-500 mt-3">Reasons available once mandi data is loaded.</p>}
+          {!canCalculate && <p className="text-xs text-gray-500 mt-3">{t.tradeExplainMissingData}</p>}
         </section>
 
         <section className="space-y-2">
           <button
             onClick={handleShareTradeResult}
-            className="w-full bg-white border border-[#004c22] text-[#004c22] font-bold py-3 rounded-xl active:scale-[0.98] transition-transform"
+            disabled={!canCalculate}
+            className="w-full bg-white border border-[#004c22] text-[#004c22] font-bold py-3 rounded-xl active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ fontFamily: "Manrope, sans-serif", minHeight: "52px" }}
           >
             📤 Share Trade Result
