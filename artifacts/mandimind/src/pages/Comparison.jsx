@@ -119,15 +119,15 @@ export default function Comparison() {
   const recentModeDate = compareMode === "latest"
     ? displayedMandis[0]?.modeDate || null
     : null;
-  const freshnessBanner = getFreshnessMessage(compareData?.freshnessDays ?? displayedMandis[0]?.modeFreshnessDays);
+  const freshnessBanner = getFreshnessMessage(compareData?.freshnessDays ?? displayedMandis[0]?.modeFreshnessDays, t);
   const showModeBanner = showTodayUpdatingNote || compareMode === "latest";
   const getLatestFreshnessLabel = (freshnessDays) => {
     if (!Number.isFinite(freshnessDays)) return t.latestAvailable;
-    if (freshnessDays <= 0) return "Today";
-    if (freshnessDays === 1) return "1 day ago";
-    if (freshnessDays === 2) return "2 days ago";
-    if (freshnessDays === 3) return "3 days ago";
-    return `${freshnessDays} days ago`;
+    if (freshnessDays <= 0) return t.today;
+    if (freshnessDays === 1) return t.oneDayAgo;
+    if (freshnessDays === 2) return t.twoDaysAgo;
+    if (freshnessDays === 3) return t.threeDaysAgo;
+    return t.daysAgoGeneric.replace("{days}", freshnessDays);
   };
 
   return (
@@ -280,7 +280,7 @@ export default function Comparison() {
                         compareMode === "today"
                           ? item.modeHasData
                             ? t.today
-                            : "Today unavailable"
+                            : t.todayDataUnavailable
                           : getLatestFreshnessLabel(item.modeFreshnessDays)
                       }
                       isBest={idx === 0}

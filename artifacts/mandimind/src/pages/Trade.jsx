@@ -74,7 +74,7 @@ function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry,
       decision: "CANNOT_GENERATE",
       riskLevel: "N/A",
       confidenceLevel: "LOW",
-      delayRiskNote: null,
+      delayRiskLevel: null,
       keyReasons: [],
     };
   }
@@ -111,16 +111,16 @@ function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry,
   if (marginRangePerKg.min > 2 && selectedCountry.transitDays <= 8) confidenceLevel = "HIGH";
   else if (marginRangePerKg.max > 0) confidenceLevel = "MEDIUM";
 
-  const delayRiskNote = selectedCountry.transitDays >= 10
-    ? "High delay risk: longer transit can reduce realized selling price."
+  const delayRiskLevel = selectedCountry.transitDays >= 10
+    ? "high"
     : selectedCountry.transitDays >= 6
-      ? "Moderate delay risk: transit disruptions can impact margin."
-      : "Low delay risk: shorter route usually protects realization.";
+      ? "medium"
+      : "low";
 
   const keyReasons = [
-    `Realization factor ${Math.round(selectedCountry.realizationFactor * 100)}% applied on estimated export price.`,
-    `Transit estimate: ${selectedCountry.transitDays} days.`,
-    `Break-even selling price: ₹${breakEvenSellingPricePerKg.toFixed(2)}/kg.`,
+    { key: "realization", value: Math.round(selectedCountry.realizationFactor * 100) },
+    { key: "transit", value: selectedCountry.transitDays },
+    { key: "breakEven", value: breakEvenSellingPricePerKg.toFixed(2) },
   ];
 
   return {
@@ -132,7 +132,7 @@ function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry,
     decision,
     riskLevel,
     confidenceLevel,
-    delayRiskNote,
+    delayRiskLevel,
     keyReasons,
   };
 }
@@ -271,9 +271,8 @@ export default function Trade() {
   const showReliabilityWarning = !loading && !error && mandis.length > 0 && !hasReliableMandiCoverage;
   const dataConfidence = showReliabilityWarning ? "LOW" : rawDataConfidence;
   const mandiHeadingLabel = bestMandi?.priceSource === "recent" && Number(bestMandi?.freshnessDays) > 2
-    ? "Best mandi (based on recent data)"
-    : "Best Mandis (Top 3)";
-
+    ? t.tradeBestMandiRecentData
+    : t.tradeBestMandisTop3;
   const calculations = useMemo(() => {
     return calculateTradeMetrics({
       canCalculate,
@@ -282,6 +281,34 @@ export default function Trade() {
       quantity: safeQuantity,
     });
   }, [canCalculate, baseMandiPricePerKg, selectedCountry, safeQuantity]);
+  const dataConfidenceLabel = dataConfidence === "HIGH"
+    ? t.confidenceHigh
+    : dataConfidence === "MEDIUM-HIGH"
+      ? t.confidenceMediumHigh
+      : dataConfidence === "MEDIUM"
+        ? t.confidenceMedium
+        : dataConfidence === "LOW"
+          ? t.confidenceLow
+          : t.dataStatusUpdating;
+  const dataCompletenessLabel = dataCompleteness === "HIGH"
+    ? t.confidenceHigh
+    : dataCompleteness === "MEDIUM"
+      ? t.confidenceMedium
+      : t.confidenceLow;
+  const riskLevelLabel = calculations.riskLevel === "LOW"
+    ? t.confidenceLow
+    : calculations.riskLevel === "MEDIUM"
+      ? t.confidenceMedium
+      : calculations.riskLevel === "HIGH"
+        ? t.confidenceHigh
+        : t.naLabel;
+  const delayRiskNote = calculations.delayRiskLevel === "high"
+    ? t.tradeDelayRiskHigh
+    : calculations.delayRiskLevel === "medium"
+      ? t.tradeDelayRiskMedium
+      : calculations.delayRiskLevel === "low"
+        ? t.tradeDelayRiskLow
+        : null;
 
   const decisionTone = getDecisionTone(calculations.decision);
   const decisionLabel = calculations.decision === "PROFITABLE"
@@ -295,22 +322,22 @@ export default function Trade() {
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
 
   async function handleShareTradeResult() {
-    const shareText = `MandiMind Trade Intelligence
+    const shareText = `${t.tradeShareTitle}
 
-Crop: ${selectedCropName}
-Country: ${selectedCountry.name}
-Estimated margin range: ${formatRange(calculations.totalMarginRange.min, calculations.totalMarginRange.max)}
-Decision: ${decisionLabel}
-Confidence: ${dataConfidence}
+${t.cropLabel}: ${selectedCropName}
+${t.tradeDestinationCountry}: ${selectedCountry.name}
+${t.tradeEstimatedMarginRange}: ${formatRange(calculations.totalMarginRange.min, calculations.totalMarginRange.max)}
+${t.tradeDecision}: ${decisionLabel}
+${t.confidence}: ${dataConfidenceLabel}
 
-Check your trade:
+${t.tradeCheckLinkLabel}:
 https://mandimind.pages.dev/trade`;
 
     const result = await shareResult({
-      title: "MandiMind Trade Intelligence",
+      title: t.tradeShareTitle,
       text: shareText,
       url: "https://mandimind.pages.dev/trade",
-      fallbackSuccessMessage: "Result copied to clipboard",
+      fallbackSuccessMessage: t.resultCopiedToClipboard,
     });
 
     setShareMessage(result.message);
@@ -337,20 +364,20 @@ https://mandimind.pages.dev/trade`;
             className="text-[30px] leading-tight sm:text-4xl font-extrabold text-[#004c22] tracking-tight break-words"
             style={{ fontFamily: "Manrope, sans-serif" }}
           >
-            <span className="block">Stop Losing Money in Mandis</span>
-            <span className="block">Check Before You Sell</span>
+            <span className="block">{t.tradeHeroLine1}</span>
+            <span className="block">{t.tradeHeroLine2}</span>
           </h1>
           <p className="text-sm sm:text-base text-[#1e1c10]">
-            Compare mandi price vs export value and see your real profit in seconds.
+            {t.tradeHeroDesc}
           </p>
           <p className="text-xs sm:text-sm text-gray-500">
-            Used by traders to avoid wrong selling decisions
+            {t.tradeHeroSubDesc}
           </p>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Crop</label>
+            <label className="block text-xs text-gray-500 mb-1">{t.cropLabel}</label>
             <select
               value={selectedCrop}
               onChange={(e) => setSelectedCrop(e.target.value)}
@@ -358,7 +385,7 @@ https://mandimind.pages.dev/trade`;
               className="w-full bg-white border border-gray-300 rounded-xl px-3 py-3 text-sm text-[#1e1c10] outline-none focus:border-[#004c22]"
               style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
             >
-              {cropLoading && <option value="">Loading available crops…</option>}
+              {cropLoading && <option value="">{t.loadingAvailableCrops}</option>}
               {cropList.map((crop) => (
                 <option key={crop.id} value={crop.id}>
                   {crop.name}
@@ -368,7 +395,7 @@ https://mandimind.pages.dev/trade`;
           </div>
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Quantity (kg)</label>
+            <label className="block text-xs text-gray-500 mb-1">{t.tradeQuantityKg}</label>
             <input
               type="number"
               min="1"
@@ -379,7 +406,7 @@ https://mandimind.pages.dev/trade`;
           </div>
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Destination country</label>
+            <label className="block text-xs text-gray-500 mb-1">{t.tradeDestinationCountry}</label>
             <select
               value={country}
               onChange={(e) => setCountry(e.target.value)}
@@ -401,7 +428,7 @@ https://mandimind.pages.dev/trade`;
           )}
           {showReliabilityWarning && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <p className="text-sm text-amber-800 font-semibold">Market data is outdated — decision may not be reliable</p>
+              <p className="text-sm text-amber-800 font-semibold">{t.marketDataOutdatedWarning}</p>
             </div>
           )}
           {hasLowMandiAvailability && (
@@ -425,24 +452,24 @@ https://mandimind.pages.dev/trade`;
             </div>
             <div className={`${decisionTone.card} rounded-lg p-2`}>
               <p className={`text-[10px] ${decisionTone.label}`}>{t.tradeRiskLevel}</p>
-              <p className="text-sm font-bold">{calculations.riskLevel}</p>
+              <p className="text-sm font-bold">{riskLevelLabel}</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-2 text-center">
             <div className="bg-white/10 rounded-lg p-2">
               <p className="text-[10px] text-green-100">{t.confidence}</p>
-              <p className="text-lg font-extrabold tracking-wide">{dataConfidence}</p>
+              <p className="text-lg font-extrabold tracking-wide">{dataConfidenceLabel}</p>
             </div>
             <div className="bg-white/10 rounded-lg p-2">
               <p className="text-[10px] text-green-100">{t.tradeDataCompleteness}</p>
-              <p className="text-lg font-extrabold tracking-wide">{dataCompleteness}</p>
+              <p className="text-lg font-extrabold tracking-wide">{dataCompletenessLabel}</p>
             </div>
           </div>
           <p className="text-[11px] text-green-100 mt-3 leading-relaxed">{t.tradeApproximationNote}</p>
-          {calculations.delayRiskNote && <p className="text-[11px] text-green-100/90 mt-2">{calculations.delayRiskNote}</p>}
+          {delayRiskNote && <p className="text-[11px] text-green-100/90 mt-2">{delayRiskNote}</p>}
           {!canCalculate && <p className="text-xs text-green-100 mt-3">{t.tradeCannotGenerateDecision}</p>}
           {showReliabilityWarning && (
-            <p className="text-xs text-amber-100 mt-2">Market data is outdated — decision may not be reliable</p>
+            <p className="text-xs text-amber-100 mt-2">{t.marketDataOutdatedWarning}</p>
           )}
         </section>
 
@@ -450,7 +477,7 @@ https://mandimind.pages.dev/trade`;
           <h2 className="text-base font-bold text-[#1e1c10] mb-3">{mandiHeadingLabel}</h2>
 
           {loading ? (
-            <p className="text-sm text-gray-500">Fetching mandi prices…</p>
+            <p className="text-sm text-gray-500">{t.loadingMandiPrices}</p>
           ) : mandis.length === 0 ? (
             <div className="space-y-1">
               <p className="text-sm text-gray-700">{t.tradeCannotGenerateDecision}</p>
@@ -479,10 +506,12 @@ https://mandimind.pages.dev/trade`;
             <div className="flex justify-between pt-2 border-t border-gray-100"><span className="text-gray-700 font-medium">{t.tradeBreakEvenPrice}</span><span className="font-bold text-[#004c22]">{calculations.breakEvenSellingPricePerKg !== null ? `₹${calculations.breakEvenSellingPricePerKg.toFixed(2)}/kg` : "—"}</span></div>
           </div>
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-1 text-[11px] text-gray-500">
-            <p>📡 Data Source: Agmarknet (Govt. of India)</p>
-            <p>🕒 {getFreshnessMessage(tradeFreshnessDays)}</p>
+            <p>{t.dataStatusSourceLine}</p>
+            <p>{t.dataStatusCoverageLine}</p>
+            <p>{t.dataStatusModeLine}</p>
+            <p>{t.dataStatusLabel}: {getFreshnessMessage(tradeFreshnessDays, t)}</p>
             {isTradeFallbackMode && (
-              <p className="text-amber-700 font-medium">Using latest available mandi data (not today&apos;s data)</p>
+              <p className="text-amber-700 font-medium">{t.tradeUsingLatestAvailableData}</p>
             )}
           </div>
         </section>
@@ -491,7 +520,13 @@ https://mandimind.pages.dev/trade`;
           <h2 className="text-base font-bold text-[#1e1c10] mb-3">{t.tradeKeyReasons}</h2>
           <div className="space-y-3 text-sm">
             {calculations.keyReasons.map((reason) => (
-              <p key={reason} className="bg-[#f8fafc] rounded-lg px-3 py-2 text-gray-700">• {reason}</p>
+              <p key={reason.key} className="bg-[#f8fafc] rounded-lg px-3 py-2 text-gray-700">
+                • {reason.key === "realization"
+                  ? t.tradeReasonRealization.replace("{percent}", reason.value)
+                  : reason.key === "transit"
+                    ? t.tradeReasonTransit.replace("{days}", reason.value)
+                    : t.tradeReasonBreakEven.replace("{price}", reason.value)}
+              </p>
             ))}
           </div>
           {!canCalculate && <p className="text-xs text-gray-500 mt-3">{t.tradeExplainMissingData}</p>}
@@ -504,18 +539,18 @@ https://mandimind.pages.dev/trade`;
             className="w-full bg-white border border-[#004c22] text-[#004c22] font-bold py-3 rounded-xl active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ fontFamily: "Manrope, sans-serif", minHeight: "52px" }}
           >
-            📤 Share Trade Result
+            {t.tradeShareResult}
           </button>
           {shareMessage && (
             <p className="text-center text-xs text-gray-600">{shareMessage}</p>
           )}
-          <p className="text-center text-sm text-[#1e1c10]">👉 Try your crop or mandi and see if you're making profit</p>
+          <p className="text-center text-sm text-[#1e1c10]">{t.tradeTryCropMandiProfitLine}</p>
           <button
             onClick={handleCheckAnotherTrade}
             className="w-full bg-[#004c22] text-white font-bold py-3 rounded-xl active:scale-[0.98] transition-transform"
             style={{ fontFamily: "Manrope, sans-serif", minHeight: "52px" }}
           >
-            🔍 Check another trade
+            {t.tradeCheckAnother}
           </button>
         </section>
       </div>
