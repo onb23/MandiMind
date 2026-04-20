@@ -131,6 +131,69 @@ function selectWithFallback(records: PriceRecord[], todayTs = startOfUtcDayTs())
   };
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function calculateVariancePct(prices: number[]): number {
+  if (!prices.length) return 0;
+  const mean = prices.reduce((sum, p) => sum + p, 0) / prices.length;
+  if (!Number.isFinite(mean) || mean <= 0) return 0;
+  const variance = prices.reduce((sum, p) => sum + (p - mean) ** 2, 0) / prices.length;
+  const stdDev = Math.sqrt(Math.max(0, variance));
+  return Number(((stdDev / mean) * 100).toFixed(2));
+}
+
+function getConfidenceFromSignals(params: {
+  freshnessDays: number | null;
+  source: "live" | "fallback";
+  mandiCount: number;
+  priceVariance: number;
+}) {
+  const freshnessScore = params.freshnessDays === null
+    ? 20
+    : params.freshnessDays <= 0
+      ? 30
+      : params.freshnessDays <= 1
+        ? 25
+        : params.freshnessDays <= 3
+          ? 18
+          : params.freshnessDays <= 7
+            ? 12
+            : 6;
+  const sourceScore = params.source === "live" ? 25 : 15;
+  const mandiCountScore = clamp(params.mandiCount * 2.5, 0, 25);
+  const varianceScore = params.priceVariance <= 2
+    ? 20
+    : params.priceVariance <= 4
+      ? 16
+      : params.priceVariance <= 7
+        ? 12
+        : params.priceVariance <= 10
+          ? 8
+          : 4;
+
+  const confidenceScore = Math.round(
+    clamp(freshnessScore + sourceScore + mandiCountScore + varianceScore, 0, 100)
+  );
+
+  return {
+    confidenceScore,
+    confidenceInputs: {
+      freshnessDays: params.freshnessDays,
+      source: params.source,
+      mandiCount: params.mandiCount,
+      priceVariance: params.priceVariance,
+    },
+    confidenceBreakdown: {
+      freshness: freshnessScore,
+      source: sourceScore,
+      mandiCount: mandiCountScore,
+      variance: varianceScore,
+    },
+  };
+}
+
 function toDisplayCropName(commodity: string): string {
   return COMMODITY_DISPLAY_MAP[commodity] || commodity;
 }
@@ -246,6 +309,8 @@ router.get("/prices", async (req: Request, res: Response) => {
     const prices  = trimmed.map(r => r.modal_price);
     const latest  = trimmed[trimmed.length - 1] ?? null;
 
+    const variance7d = calculateVariancePct(trimmed.slice(-7).map((r) => r.modal_price).filter((p) => p > 0));
+
     const responseData = {
       data:         trimmed,
       currentPrice: latest?.modal_price ?? null,
@@ -257,6 +322,7 @@ router.get("/prices", async (req: Request, res: Response) => {
       stale:       latest ? isDataStale(latest.date) : true,
       freshnessDays: fallbackSelection.metadata.freshnessDays,
       source:      fallbackSelection.metadata.source,
+      variance7d,
     };
 
     cache.set(cacheKey, { data: responseData, ts: Date.now() });
@@ -482,6 +548,7 @@ router.get("/compare", async (req: Request, res: Response) => {
         mandi,
         todayPrice:  latest.modal_price,
         avgPrice,
+        variance7d: calculateVariancePct(recent.map((r) => r.modal_price).filter((p) => p > 0)),
         lastUpdated: latest.date,
         stale:       isDataStale(latest.date),
       };
@@ -490,6 +557,16 @@ router.get("/compare", async (req: Request, res: Response) => {
     // Sort by today's price descending
     mandiSummaries.sort((a, b) => b.todayPrice - a.todayPrice);
 
+    const priceVariance = mandiSummaries.length > 0
+      ? Number((mandiSummaries.reduce((sum, row) => sum + row.variance7d, 0) / mandiSummaries.length).toFixed(2))
+      : 0;
+    const confidence = getConfidenceFromSignals({
+      freshnessDays: fallbackSelection.metadata.freshnessDays,
+      source: fallbackSelection.metadata.source,
+      mandiCount: mandiSummaries.length,
+      priceVariance,
+    });
+
     const responseData = {
       mandis:      mandiSummaries.length > 0
         ? mandiSummaries
@@ -497,6 +574,8 @@ router.get("/compare", async (req: Request, res: Response) => {
       lastUpdated: latestDate,
       freshnessDays: fallbackSelection.metadata.freshnessDays,
       source:      fallbackSelection.metadata.source,
+      priceVariance,
+      ...confidence,
     };
 
     cache.set(cacheKey, { data: responseData, ts: Date.now() });

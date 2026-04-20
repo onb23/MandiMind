@@ -151,3 +151,72 @@ export function getDecision(prices, inputs) {
     ma10: ma10 ? Math.round(ma10) : null,
   };
 }
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function getDecisionStrengthModel({
+  spread,
+  variance7d,
+  confidenceScore,
+  source,
+  freshnessDays,
+  mandiCount,
+}) {
+  const safeSpread = Number.isFinite(spread) ? spread : 0;
+  const safeVariance = Number.isFinite(variance7d) ? variance7d : 0;
+  const safeConfidence = Number.isFinite(confidenceScore) ? confidenceScore : 0;
+  const safeMandiCount = Number.isFinite(mandiCount) ? mandiCount : 0;
+
+  const spreadScore = clamp(Math.round(safeSpread / 8), -20, 30);
+  const variancePenalty = clamp(Math.round(safeVariance * 2.2), 0, 30);
+  const confidenceBonus = clamp(Math.round((safeConfidence - 50) / 2.5), -15, 20);
+  const liquidityBonus = clamp(Math.round(safeMandiCount / 2), 0, 10);
+  const freshnessPenalty = Number.isFinite(freshnessDays) && freshnessDays > 3 ? 10 : 0;
+  const sourcePenalty = source === "fallback" ? 8 : 0;
+
+  const decisionScore = clamp(
+    50 + spreadScore + confidenceBonus + liquidityBonus - variancePenalty - freshnessPenalty - sourcePenalty,
+    0,
+    100
+  );
+
+  const classification = decisionScore >= 75
+    ? "Strong Opportunity"
+    : decisionScore >= 55
+      ? "Moderate Opportunity"
+      : decisionScore >= 35
+        ? "Risky"
+        : "Avoid";
+
+  const keyReasons = [
+    safeSpread >= 120
+      ? `Spread is +₹${Math.round(safeSpread)} per quintal versus selected mandi.`
+      : safeSpread > 0
+        ? `Spread is +₹${Math.round(safeSpread)} per quintal, but edge is limited.`
+        : `Spread is ${safeSpread === 0 ? "₹0" : `₹${Math.round(safeSpread)}`} per quintal, limiting upside.`,
+    safeVariance <= 4
+      ? `7-day volatility is controlled at ${safeVariance.toFixed(1)}%.`
+      : `7-day volatility is elevated at ${safeVariance.toFixed(1)}%, which increases execution risk.`,
+    safeConfidence >= 70
+      ? `Signal confidence is strong at ${safeConfidence}%.`
+      : `Signal confidence is moderate/low at ${safeConfidence}%.`,
+  ];
+
+  const riskExplanation = safeVariance > 7
+    ? "High volatility means observed spreads can collapse quickly before sale execution."
+    : source === "fallback"
+      ? "Using fallback data introduces timing risk; re-check after fresh mandi updates."
+      : "Risk is manageable if logistics are reliable and mandi arrivals stay stable.";
+
+  return {
+    spread: safeSpread,
+    variance7d: safeVariance,
+    confidenceScore: safeConfidence,
+    decisionScore,
+    classification,
+    keyReasons,
+    riskExplanation,
+  };
+}
