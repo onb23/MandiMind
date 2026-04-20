@@ -15,11 +15,12 @@ export const PRICE_MODE = {
   RECENT: "latest",
 };
 
-export function getFreshnessMessage(freshnessDays) {
-  if (!Number.isFinite(freshnessDays)) return "Showing latest available";
-  if (freshnessDays === 0) return "Today’s data";
-  if (freshnessDays <= DEFAULT_MAX_FRESHNESS_DAYS) return "Recent mode (up to 3 days)";
-  return `Showing latest available data (${freshnessDays} days old)`;
+export function getFreshnessMessage(freshnessDays, t = null) {
+  if (!Number.isFinite(freshnessDays)) return t?.freshnessLatestAvailable ?? "Showing latest available";
+  if (freshnessDays === 0) return t?.freshnessTodayData ?? "Today’s data";
+  if (freshnessDays <= DEFAULT_MAX_FRESHNESS_DAYS) return t?.freshnessRecentMode ?? "Recent mode (up to 3 days)";
+  return (t?.freshnessLatestAvailableDaysOld ?? "Showing latest available data ({days} days old)")
+    .replace("{days}", freshnessDays);
 }
 
 export function parseArrivalDate(dateStr) {

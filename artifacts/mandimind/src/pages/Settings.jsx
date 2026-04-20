@@ -17,18 +17,18 @@ export default function Settings() {
 
   const feedbackActions = [
     {
-      label: "Report a problem",
-      subtitle: "Something not working? Tell us",
+      label: t.feedbackReportProblem,
+      subtitle: t.feedbackReportProblemSubtitle,
       type: "bug",
     },
     {
-      label: "Suggest a feature",
-      subtitle: "What should we build next?",
+      label: t.feedbackSuggestFeature,
+      subtitle: t.feedbackSuggestFeatureSubtitle,
       type: "feature",
     },
     {
-      label: "Business / partnership inquiry",
-      subtitle: "For traders, exporters, companies",
+      label: t.feedbackBusinessInquiry,
+      subtitle: t.feedbackBusinessInquirySubtitle,
       type: "business",
     },
   ];
@@ -78,7 +78,7 @@ export default function Settings() {
             className="text-base font-bold text-[#1e1c10] mb-4"
             style={{ fontFamily: "Manrope, sans-serif" }}
           >
-            Feedback & Support
+            {t.feedbackSupport}
           </h3>
           <div className="space-y-2">
             {feedbackActions.map((action) => (
@@ -121,12 +121,12 @@ export default function Settings() {
             className="text-base font-bold text-[#1e1c10] mb-3"
             style={{ fontFamily: "Manrope, sans-serif" }}
           >
-            About MandiMind
+            {t.aboutMandiMind}
           </h3>
           <div className="space-y-1.5 text-sm text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            <p>Built by Omkar Borade</p>
-            <p>Mission: Helping farmers and agri-traders make better market decisions</p>
-            <p>Focus: Maharashtra-first, expanding further</p>
+            <p>{t.builtByOmkarBorade}</p>
+            <p>{t.aboutMission}</p>
+            <p>{t.aboutFocus}</p>
           </div>
 
           {(profileLinks.portfolio || profileLinks.linkedIn) && (

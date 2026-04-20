@@ -149,7 +149,7 @@ export default function Home() {
   const getMandiOptionLabel = (item) => {
     if (priceType === "today") {
       if (!item?.modeHasData) {
-        return `${item.mandi} — ${t.naLabel} · Today unavailable`;
+        return `${item.mandi} — ${t.naLabel} · ${t.todayDataUnavailable}`;
       }
       const price = formatInr(item?.modePrice);
       return `${item.mandi} — ${price} · ${t.today}`;
@@ -286,7 +286,7 @@ export default function Home() {
             <div className="mb-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
               {showTodayUpdatingNote ? (
                 <p className="text-xs text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  Today’s mandi data updates gradually through the day. If some prices are missing, switch to ‘Latest available’ to see the most recent data.
+                  {t.todayModeUpdatingGuidance}
                 </p>
               ) : (
                 <p className={`text-xs ${selectedRecentDate ? "text-gray-700" : "text-gray-600"}`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
@@ -299,7 +299,7 @@ export default function Home() {
           )}
           {selectedCrop && !mandiLoading && !mandiError && !(showTodayUpdatingNote || showRecentInfoNote) && (
             <p className="mb-2 text-xs text-blue-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {getFreshnessMessage(mandiFreshnessDays)}
+              {getFreshnessMessage(mandiFreshnessDays, t)}
             </p>
           )}
           <label
