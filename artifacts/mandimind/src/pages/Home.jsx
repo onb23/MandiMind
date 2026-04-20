@@ -41,10 +41,7 @@ export default function Home() {
     if (selected?.latestOption?.date) return selected.latestOption.date;
     return visibleMandis[0]?.modeDate || null;
   }, [mandiOptions, selectedMandi, priceType, visibleMandis]);
-  const showTodayUpdatingNote = selectedCrop
-    && !mandiLoading
-    && !mandiError
-    && priceType === "today";
+  const showTodayUpdatingNote = priceType === "today";
   const showRecentInfoNote = selectedCrop
     && !mandiLoading
     && !mandiError
