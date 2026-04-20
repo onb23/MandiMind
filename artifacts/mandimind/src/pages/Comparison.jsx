@@ -57,10 +57,17 @@ export default function Comparison() {
   }, [selectedCrop]);
 
   const mandis = compareData?.mandis || [];
-  const modeMandis = getMandisForPriceMode(mandis, compareMode);
+  const modeMandis = getMandisForPriceMode(mandis, compareMode, { includeTodayInLatest: true });
   const todayMandiCount = mandis.filter((item) => item?.todayOption?.isUsable).length;
   const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
   const sortFn = (a, b) => {
+    if (compareMode === "latest") {
+      const byFreshness = (a.modeFreshnessDays ?? 999) - (b.modeFreshnessDays ?? 999);
+      if (byFreshness !== 0) return byFreshness;
+      const byPrice = scorePrice(b.modePrice) - scorePrice(a.modePrice);
+      if (byPrice !== 0) return byPrice;
+      return a.mandi.localeCompare(b.mandi);
+    }
     const byPrice = scorePrice(b.modePrice) - scorePrice(a.modePrice);
     if (byPrice !== 0) return byPrice;
     const byFreshness = (a.modeFreshnessDays ?? 999) - (b.modeFreshnessDays ?? 999);
@@ -114,6 +121,14 @@ export default function Comparison() {
     : null;
   const freshnessBanner = getFreshnessMessage(compareData?.freshnessDays ?? displayedMandis[0]?.modeFreshnessDays);
   const showModeBanner = showTodayUpdatingNote || compareMode === "latest";
+  const getLatestFreshnessLabel = (freshnessDays) => {
+    if (!Number.isFinite(freshnessDays)) return t.latestAvailable;
+    if (freshnessDays <= 0) return "Today";
+    if (freshnessDays === 1) return "1 day ago";
+    if (freshnessDays === 2) return "2 days ago";
+    if (freshnessDays === 3) return "3 days ago";
+    return `${freshnessDays} days ago`;
+  };
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -266,9 +281,7 @@ export default function Comparison() {
                           ? item.modeHasData
                             ? t.today
                             : "Today unavailable"
-                          : item.modeFreshnessDays
-                            ? (item.modeFreshnessDays === 1 ? t.dayOld : t.daysOld).replace("{days}", item.modeFreshnessDays)
-                            : t.latestAvailable
+                          : getLatestFreshnessLabel(item.modeFreshnessDays)
                       }
                       isBest={idx === 0}
                       rank={idx + 1}

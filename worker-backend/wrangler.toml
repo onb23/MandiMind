@@ -26,6 +26,10 @@ tsconfig = "tsconfig.worker.json"
 [vars]
 NODE_ENV = "production"
 
+[[kv_namespaces]]
+binding = "RECENT_MANDI_KV"
+id = "replace-with-production-kv-namespace-id"
+
 # ── Observability ─────────────────────────────────────────────────────────────
 [observability]
 enabled = true

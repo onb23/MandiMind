@@ -12,6 +12,7 @@
 
 export interface Env {
   DATA_GOV_API_KEY: string;
+  RECENT_MANDI_KV?: KVNamespace;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -59,10 +60,21 @@ interface PriceRecord {
   district:    string;
   state:       string;
   commodity:   string;
+  variety?:    string;
   price:       number;
   min_price:   number;
   max_price:   number;
   modal_price: number;
+}
+
+interface RecentMandiSnapshot {
+  mandi: string;
+  date: string;
+  modal_price: number;
+  min_price: number;
+  max_price: number;
+  variety?: string;
+  timestamp: number;
 }
 
 interface RecommendationTraceStage {
@@ -112,7 +124,9 @@ function startOfUtcDayTs(date = new Date()): number {
 function getFreshnessDays(dateStr: string, todayTs = startOfUtcDayTs()): number | null {
   const ts = parseArrivalDate(dateStr);
   if (!ts) return null;
-  return Math.max(0, Math.floor((todayTs - ts) / DAY_MS));
+  const diffMs = todayTs - ts;
+  if (diffMs < 0) return null;
+  return Math.floor(diffMs / DAY_MS);
 }
 
 function selectWithFallback(records: PriceRecord[], todayTs = startOfUtcDayTs()) {
@@ -182,6 +196,132 @@ function normalizeMarketName(market: string): string {
     .toLowerCase();
 }
 
+function buildRecentKvKey(crop: string, state: string): string {
+  return `recent:${(crop ?? "").trim().toLowerCase()}:${(state ?? "").trim().toLowerCase()}`;
+}
+
+function toRecentSnapshot(records: PriceRecord[], todayTs = startOfUtcDayTs()): RecentMandiSnapshot[] {
+  const dedupe = new Map<string, RecentMandiSnapshot>();
+  for (const row of records) {
+    const freshnessDays = getFreshnessDays(row.date, todayTs);
+    if (freshnessDays === null || freshnessDays < 0 || freshnessDays > 3) continue;
+    if (!row.market || !row.date || !Number.isFinite(row.modal_price)) continue;
+    const key = `${normalizeMarketName(row.market)}|${row.date}`;
+    const snapshot: RecentMandiSnapshot = {
+      mandi: row.market,
+      date: row.date,
+      modal_price: row.modal_price,
+      min_price: Number.isFinite(row.min_price) ? row.min_price : row.modal_price,
+      max_price: Number.isFinite(row.max_price) ? row.max_price : row.modal_price,
+      variety: row.variety,
+      timestamp: Date.now(),
+    };
+    const existing = dedupe.get(key);
+    if (!existing || snapshot.modal_price > existing.modal_price) {
+      dedupe.set(key, snapshot);
+    }
+  }
+  return [...dedupe.values()].sort((a, b) => {
+    const byDate = parseArrivalDate(b.date) - parseArrivalDate(a.date);
+    if (byDate !== 0) return byDate;
+    return b.modal_price - a.modal_price;
+  });
+}
+
+function dedupeRecentSnapshots(entries: RecentMandiSnapshot[]): RecentMandiSnapshot[] {
+  const byMandiDate = new Map<string, RecentMandiSnapshot>();
+  for (const entry of entries) {
+    if (!entry?.mandi || !entry?.date) continue;
+    const key = `${normalizeMarketName(entry.mandi)}|${entry.date}`;
+    const existing = byMandiDate.get(key);
+    if (!existing) {
+      byMandiDate.set(key, entry);
+      continue;
+    }
+    const existingTs = Number(existing.timestamp) || 0;
+    const incomingTs = Number(entry.timestamp) || 0;
+    if (incomingTs >= existingTs && entry.modal_price >= existing.modal_price) {
+      byMandiDate.set(key, entry);
+    }
+  }
+  return [...byMandiDate.values()];
+}
+
+function shouldOverwriteSnapshot(existingEntries: RecentMandiSnapshot[], nextEntries: RecentMandiSnapshot[]): boolean {
+  if (nextEntries.length === 0) return false;
+  if (existingEntries.length === 0) return true;
+
+  const existingLatestTs = existingEntries.reduce((max, row) => Math.max(max, parseArrivalDate(row.date)), 0);
+  const nextLatestTs = nextEntries.reduce((max, row) => Math.max(max, parseArrivalDate(row.date)), 0);
+  const existingCount = existingEntries.length;
+  const nextCount = nextEntries.length;
+
+  // Guardrail: never replace strong KV data with very small partial snapshots.
+  if (nextCount * 2 < existingCount) return false;
+
+  // Overwrite only when row count is at least as good OR the snapshot is strictly newer.
+  return nextCount >= existingCount || nextLatestTs > existingLatestTs;
+}
+
+async function writeRecentDataToKv(env: Env, crop: string, state: string, records: PriceRecord[], todayTs = startOfUtcDayTs()) {
+  if (!env.RECENT_MANDI_KV) return;
+  const key = buildRecentKvKey(crop, state);
+  const snapshot = dedupeRecentSnapshots(toRecentSnapshot(records, todayTs));
+  if (snapshot.length === 0) return;
+
+  const existingRaw = await env.RECENT_MANDI_KV.get(key);
+  let existingEntries: RecentMandiSnapshot[] = [];
+  if (existingRaw) {
+    try {
+      const existingParsed = JSON.parse(existingRaw) as { entries?: RecentMandiSnapshot[] };
+      existingEntries = dedupeRecentSnapshots(Array.isArray(existingParsed?.entries) ? existingParsed.entries : []);
+    } catch {
+      existingEntries = [];
+    }
+  }
+
+  if (!shouldOverwriteSnapshot(existingEntries, snapshot)) return;
+
+  await env.RECENT_MANDI_KV.put(
+    key,
+    JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      entries: snapshot,
+    }),
+  );
+}
+
+async function readRecentDataFromKv(env: Env, crop: string, state: string, todayTs = startOfUtcDayTs()): Promise<PriceRecord[]> {
+  if (!env.RECENT_MANDI_KV) return [];
+  const key = buildRecentKvKey(crop, state);
+  const raw = await env.RECENT_MANDI_KV.get(key);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as { entries?: RecentMandiSnapshot[] };
+    const entries = dedupeRecentSnapshots(Array.isArray(parsed?.entries) ? parsed.entries : []);
+    return entries
+      .filter((entry) => {
+        const freshnessDays = getFreshnessDays(entry.date, todayTs);
+        return freshnessDays !== null && freshnessDays >= 0 && freshnessDays <= 3;
+      })
+      .map((entry) => ({
+        date: entry.date,
+        market: entry.mandi,
+        district: "",
+        state,
+        commodity: crop,
+        variety: entry.variety,
+        price: entry.modal_price,
+        min_price: entry.min_price,
+        max_price: entry.max_price,
+        modal_price: entry.modal_price,
+      }))
+      .sort((a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date) || b.modal_price - a.modal_price);
+  } catch {
+    return [];
+  }
+}
+
 function sampleRecords(records: PriceRecord[], sampleSize = 5) {
   return records.slice(0, sampleSize).map((r) => ({
     market: r.market ?? "",
@@ -221,6 +361,60 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function buildCompareResponseFromRows(
+  rows: PriceRecord[],
+  days: number,
+  metadata: { freshnessDays: number | null; source: "live" | "fallback" },
+  cacheKey: string,
+): Response {
+  const usableRows = rows.filter((r) => Boolean(r.market && r.date));
+  const sourceRows = usableRows.length > 0 ? usableRows : rows;
+  const byMandi = new Map<string, PriceRecord[]>();
+  for (const row of sourceRows) {
+    if (!byMandi.has(row.market)) byMandi.set(row.market, []);
+    byMandi.get(row.market)!.push(row);
+  }
+
+  const latestDate = sourceRows
+    .map((r) => r.date)
+    .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+
+  const mandiSummaries = Array.from(byMandi.entries())
+    .map(([mandi, recs]) => {
+      const sorted = [...recs].sort((a, b) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
+      const latest = sorted[sorted.length - 1];
+      const recent = sorted.slice(-days);
+      const avgPrice = recent.length
+        ? Math.round(recent.reduce((sum, row) => sum + row.modal_price, 0) / recent.length)
+        : 0;
+      const freshnessDays = getFreshnessDays(latest.date);
+      return {
+        mandi,
+        todayPrice: latest.modal_price,
+        avgPrice,
+        lastUpdated: latest.date,
+        stale: isDataStale(latest.date),
+        freshnessDays,
+      };
+    })
+    .sort((a, b) => {
+      const byNewest = parseArrivalDate(b.lastUpdated) - parseArrivalDate(a.lastUpdated);
+      if (byNewest !== 0) return byNewest;
+      return b.todayPrice - a.todayPrice;
+    });
+
+  const data = {
+    mandis: mandiSummaries.length > 0
+      ? mandiSummaries
+      : [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: latestDate, stale: true }],
+    lastUpdated: latestDate,
+    freshnessDays: metadata.freshnessDays,
+    source: metadata.source,
+  };
+  cache.set(cacheKey, { data, ts: Date.now() });
+  return json(data);
+}
+
 async function fetchDataGov(
   apiKey: string,
   commodity: string,
@@ -257,6 +451,7 @@ async function fetchDataGov(
   district:    r.district ?? "",
   state:       r.state ?? "",
   commodity:   r.commodity,
+  variety:     r.variety ?? undefined,
   price:       Number(r.modal_price),
   min_price:   Number(r.min_price),
   max_price:   Number(r.max_price),
@@ -487,6 +682,7 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
   }
 
   try {
+    const todayTs = startOfUtcDayTs();
     const records = await fetchDataGovPaginated(env.DATA_GOV_API_KEY, "", "", "", {
       limit: 500,
       enoughRows: 2500,
@@ -519,6 +715,15 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
     );
 
     if (!cropFilteredRecords.length) {
+      const kvRows = await readRecentDataFromKv(env, crop, state, todayTs);
+      if (kvRows.length > 0) {
+        return buildCompareResponseFromRows(
+          kvRows,
+          days,
+          { freshnessDays: getFreshnessDays(kvRows[0]?.date ?? "", todayTs), source: "fallback" },
+          cacheKey,
+        );
+      }
       return json({
         mandis: [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
         lastUpdated: null,
@@ -527,50 +732,36 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       });
     }
 
-    const selected = selectWithFallback(finalRows);
+    const selected = selectWithFallback(finalRows, todayTs);
     const candidateRecords = selected.records.length > 0 ? selected.records : finalRows;
     const usableRows = candidateRecords.filter(
       (r) => Boolean(r.market && r.commodity && r.date)
     );
-    const finalCandidateRows = usableRows.length > 0 ? usableRows : candidateRecords;
+    let finalCandidateRows = usableRows.length > 0 ? usableRows : candidateRecords;
+    let source = selected.metadata.source;
+    let freshnessDays = selected.metadata.freshnessDays;
 
-    const byMandi = new Map<string, PriceRecord[]>();
-    for (const r of finalCandidateRows) {
-      if (!byMandi.has(r.market)) byMandi.set(r.market, []);
-      byMandi.get(r.market)!.push(r);
+    const hasRecentApiRows = finalCandidateRows.some((r) => {
+      const d = getFreshnessDays(r.date, todayTs);
+      return d !== null && d >= 0 && d <= 3;
+    });
+
+    if (!hasRecentApiRows) {
+      const kvRows = await readRecentDataFromKv(env, crop, state, todayTs);
+      if (kvRows.length > 0) {
+        finalCandidateRows = kvRows;
+        source = "fallback";
+        freshnessDays = getFreshnessDays(kvRows[0]?.date ?? "", todayTs);
+      } else {
+        finalCandidateRows = [];
+        source = "fallback";
+        freshnessDays = null;
+      }
+    } else {
+      await writeRecentDataToKv(env, crop, state, finalRows, todayTs);
     }
 
-    const allDates  = finalCandidateRows.map(r => r.date);
-    const latestDate = allDates.sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0];
-
-    const mandiSummaries = Array.from(byMandi.entries())
-      .map(([mandi, recs]) => {
-        const sorted   = [...recs].sort((a, b) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
-        const latest   = sorted[sorted.length - 1];
-        const recent   = sorted.slice(-days);
-        const avgPrice = recent.length
-          ? Math.round(recent.reduce((s, r) => s + r.modal_price, 0) / recent.length)
-          : 0;
-        return {
-          mandi,
-          todayPrice:  latest.modal_price,
-          avgPrice,
-          lastUpdated: latest.date,
-          stale:       isDataStale(latest.date),
-        };
-      })
-      .sort((a, b) => b.todayPrice - a.todayPrice);
-
-    const data = {
-      mandis: mandiSummaries.length > 0
-        ? mandiSummaries
-        : [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: latestDate ?? null, stale: true }],
-      lastUpdated: latestDate,
-      freshnessDays: selected.metadata.freshnessDays,
-      source: selected.metadata.source,
-    };
-    cache.set(cacheKey, { data, ts: Date.now() });
-    return json(data);
+    return buildCompareResponseFromRows(finalCandidateRows, days, { freshnessDays, source }, cacheKey);
 
   } catch {
     if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
