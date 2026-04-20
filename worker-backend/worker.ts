@@ -842,7 +842,18 @@ async function handleDebugMatch(params: URLSearchParams, env: Env): Promise<Resp
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url    = new URL(request.url);
+    const url = new URL(request.url);
+
+    if (url.pathname === "/api/debug") {
+      return new Response(
+        JSON.stringify({ ok: true, route: "debug-live" }),
+        {
+          headers: { "content-type": "application/json" },
+        }
+      );
+    }
+
+    // rest of your existing routes...
     const path   = url.pathname;
     const params = url.searchParams;
 
