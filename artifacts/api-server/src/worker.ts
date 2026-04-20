@@ -26,6 +26,10 @@ const CROP_MAP: Record<string, string> = {
   wheat:   "Wheat",
   soybean: "Soybean",
   cotton:  "Cotton(Unginned)",
+banana: "Banana",
+potato: "Potato",
+gram: "Gram",
+maize: "Maize",
 };
 
 // In-memory cache (lives for the lifetime of the Worker isolate)
@@ -135,9 +139,9 @@ async function fetchDataGov(
 // ─── Route handlers ───────────────────────────────────────────────────────────
 
 async function handlePrices(params: URLSearchParams, env: Env): Promise<Response> {
-  const crop   = params.get("crop")   ?? "";
+  const crop   = params.get("crop") ?? "";
   const market = params.get("market") ?? "";
-  const state  = params.get("state")  ?? "Maharashtra";
+  const state  = params.get("state") ?? "Maharashtra";
   const days   = Number(params.get("days") ?? "30");
 
   if (!crop || !market) {
@@ -145,7 +149,7 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
-  const cacheKey  = `prices:${commodity}:${market}:${state}`;
+  const cacheKey  = `prices:${commodity}:${market}:${state}:${days}`;
   const cached    = cache.get(cacheKey);
 
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -153,34 +157,42 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
   }
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", market, state, Math.max(days, 200));
+    const cropMatchedRecords = await fetchDataGov(
+      env.DATA_GOV_API_KEY,
+      commodity,
+      market,
+      state,
+      Math.max(days, 200)
+    );
+
     console.log(
       JSON.stringify({
         route: "/api/prices",
         selectedCrop: crop,
         normalizedSelectedCrop: normalizeCommodity(commodity),
-        sampleCommodityValues: sampleCommodityValues(records),
+        sampleCommodityValues: sampleCommodityValues(cropMatchedRecords),
         matchedRows: cropMatchedRecords.length,
       })
     );
+
     const trimmed = cropMatchedRecords.slice(-days);
-    const prices  = trimmed.map(r => r.modal_price);
-    const latest  = trimmed[trimmed.length - 1] ?? null;
+    const prices = trimmed.map((r) => r.modal_price);
+    const latest = trimmed[trimmed.length - 1] ?? null;
 
     const data = {
-      data:         trimmed,
+      data: trimmed,
       currentPrice: latest?.modal_price ?? null,
       priceRange: {
-        low:  prices.length ? Math.min(...prices) : null,
+        low: prices.length ? Math.min(...prices) : null,
         high: prices.length ? Math.max(...prices) : null,
       },
       lastUpdated: latest?.date ?? null,
-      stale:       latest ? isDataStale(latest.date) : true,
-      source:      "live",
+      stale: latest ? isDataStale(latest.date) : true,
+      source: "live",
     };
+
     cache.set(cacheKey, { data, ts: Date.now() });
     return json(data);
-
   } catch {
     if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
     return json({ error: "data.gov.in unavailable", data: [], source: "error" }, 502);
@@ -197,7 +209,7 @@ async function handleTrend(params: URLSearchParams, env: Env): Promise<Response>
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
-  const cacheKey  = `prices:${commodity}:${market}:${state}`;
+  const cacheKey  = `trend:${commodity}:${market}:${state}`;
   const cached    = cache.get(cacheKey);
 
   let records: PriceRecord[] = cached ? (cached.data as any).data ?? [] : [];
@@ -303,13 +315,13 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       commodity,
       "",
       state,
-      500,
+      1000,
       todayKey
     );
 
     const recentBatches = await Promise.all(
       recentDateKeys.map((dateKey) =>
-        fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500, dateKey)
+        fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 1000, dateKey)
       )
     );
 
