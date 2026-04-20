@@ -36,19 +36,34 @@ export default function Decision() {
   const [livePrices, setLivePrices] = useState(null);
   const [liveCurrent, setLiveCurrent] = useState(null);
   const [liveRange, setLiveRange] = useState(null);
+  const [liveError, setLiveError] = useState("");
 
   useEffect(() => {
-    if (!cropId || !mandi) return;
+    if (!cropId || !mandi) {
+      setLivePrices(null);
+      setLiveCurrent(null);
+      setLiveRange(null);
+      setLiveError("");
+      return;
+    }
+
+    setLiveError("");
     fetchPrices(cropId, mandi, stateVal, 30).then((res) => {
-      if (res?.data?.length) {
-        setLivePrices(res.data);
-        setLiveCurrent(res.currentPrice);
-        setLiveRange(res.priceRange);
-      } else if (res?.error) {
-        console.error("[MandiMind] Decision prices:", res.error);
+      if (res?.source === "error" || res?.error) {
+        const message = res?.error || t.liveMandiTemporarilyUnavailable;
+        console.error("[MandiMind] Decision prices:", message);
+        setLivePrices([]);
+        setLiveCurrent(null);
+        setLiveRange(null);
+        setLiveError(message);
+        return;
       }
+
+      setLivePrices(Array.isArray(res?.data) ? res.data : []);
+      setLiveCurrent(Number.isFinite(res?.currentPrice) ? res.currentPrice : null);
+      setLiveRange(res?.priceRange || null);
     });
-  }, [cropId, mandi, stateVal]);
+  }, [cropId, mandi, stateVal, t.liveMandiTemporarilyUnavailable]);
 
   // Prices used for decision engine: prefer live, fallback to empty
   const prices = useMemo(
@@ -73,27 +88,39 @@ export default function Decision() {
   // ── Mandi comparison from Cloudflare Worker (/api/compare) ───────────────
   const [mandiCompare, setMandiCompare] = useState([]);
   const [compareLoading, setCompareLoading] = useState(true);
-  const [compareError, setCompareError] = useState(false);
+  const [compareError, setCompareError] = useState("");
 
   useEffect(() => {
+    if (!cropId) {
+      setMandiCompare([]);
+      setCompareLoading(false);
+      setCompareError("");
+      return;
+    }
+
     setCompareLoading(true);
-    setCompareError(false);
+    setCompareError("");
 
     fetchCompare(cropId, stateVal, 7)
       .then((res) => {
-        if (res.source === "error") {
-          console.error("[MandiMind] fetchCompare error:", res.error);
-          setCompareError(true);
+        if (res?.source === "error" || res?.error) {
+          const message = res?.error || t.liveMandiTemporarilyUnavailable;
+          console.error("[MandiMind] fetchCompare error:", message);
+          setCompareError(message);
+          setMandiCompare([]);
         } else if (res.mandis?.length) {
           setMandiCompare(res.mandis.slice(0, 5));
+        } else {
+          setMandiCompare([]);
         }
       })
       .catch((err) => {
         console.error("[MandiMind] fetchCompare caught:", err);
-        setCompareError(true);
+        setCompareError(t.liveMandiTemporarilyUnavailable);
+        setMandiCompare([]);
       })
       .finally(() => setCompareLoading(false));
-  }, [cropId, stateVal]);
+  }, [cropId, stateVal, t.liveMandiTemporarilyUnavailable]);
 
   const hasUsableMandiData = mandiDataStatus.isUsable;
   const usesTodayData = mandiDataStatus.type === "today";
@@ -435,6 +462,9 @@ https://mandimind.pages.dev/`;
             <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.unableToFetchLiveMandiData}
             </p>
+            <p className="text-xs text-red-600 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              {compareError}
+            </p>
           </div>
         ) : mandiCompare.length > 0 ? (
           <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
@@ -469,6 +499,13 @@ https://mandimind.pages.dev/`;
           <h3 className="text-base font-bold text-[#1e1c10] mb-3" style={{ fontFamily: "Manrope, sans-serif" }}>
             {t.priceTrend} — {t.last30Days}
           </h3>
+          {liveError && (
+            <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <p className="text-xs text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {liveError}
+              </p>
+            </div>
+          )}
           <TrendChart data={prices} />
         </div>
 
