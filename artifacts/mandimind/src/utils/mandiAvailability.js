@@ -296,13 +296,14 @@ export function getUsableMandis(mandis = []) {
   return mandis.filter((item) => item?.isUsable);
 }
 
-export function getMandisForPriceMode(mandis = [], mode = PRICE_MODE.TODAY) {
+export function getMandisForPriceMode(mandis = [], mode = PRICE_MODE.TODAY, options = {}) {
+  const { includeTodayInLatest = false } = options;
   const isTodayMode = mode === PRICE_MODE.TODAY;
   return (mandis ?? [])
     .map((item) => {
       const modeRow = isTodayMode
         ? item?.todayRow
-        : item?.recentRow;
+        : (includeTodayInLatest ? (item?.latestAvailableRow ?? item?.recentRow) : item?.recentRow);
       const modeFreshnessDays = modeRow ? getFreshnessDays(modeRow.parsedDate) : null;
       return {
         ...item,
