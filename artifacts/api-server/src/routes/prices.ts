@@ -33,21 +33,70 @@ const COMMODITY_DISPLAY_MAP: Record<string, string> = {
 // Simple in-memory cache: key → { data, ts }
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-function parseArrivalDate(d: string): number {
-  // "DD/MM/YYYY" → timestamp
-  const parts = d?.split("/");
-  if (!parts || parts.length !== 3) return 0;
-  const [dd, mm, yyyy] = parts;
-  return new Date(`${yyyy}-${mm}-${dd}`).getTime();
+interface ParsedArrivalDate {
+  ts: number;
+  normalizedTs: number;
+  isoDay: string;
+}
+
+function parseArrivalDate(d: string): ParsedArrivalDate | null {
+  if (!d || typeof d !== "string") return null;
+
+  const trimmed = d.trim();
+  if (!trimmed) return null;
+
+  const ddMmYyyyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ddMmYyyyMatch) {
+    const day = Number(ddMmYyyyMatch[1]);
+    const month = Number(ddMmYyyyMatch[2]);
+    const year = Number(ddMmYyyyMatch[3]);
+    if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) return null;
+
+    const normalizedTs = Date.UTC(year, month - 1, day);
+    const parsed = new Date(normalizedTs);
+    if (Number.isNaN(parsed.getTime())) return null;
+
+    return {
+      ts: normalizedTs,
+      normalizedTs,
+      isoDay: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    };
+  }
+
+  const parsed = new Date(trimmed);
+  const parsedTs = parsed.getTime();
+  if (Number.isNaN(parsedTs)) return null;
+
+  const year = parsed.getUTCFullYear();
+  const month = parsed.getUTCMonth();
+  const day = parsed.getUTCDate();
+  const normalizedTs = Date.UTC(year, month, day);
+  const normalizedDate = new Date(normalizedTs);
+
+  return {
+    ts: parsedTs,
+    normalizedTs,
+    isoDay: normalizedDate.toISOString().slice(0, 10),
+  };
+}
+
+function startOfUtcDayTs(date = new Date()): number {
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function getDayDifference(arrivalDate: string, todayTs = startOfUtcDayTs()): number | null {
+  const parsed = parseArrivalDate(arrivalDate);
+  if (!parsed) return null;
+  return Math.floor((todayTs - parsed.normalizedTs) / DAY_MS);
 }
 
 function isDataStale(dateStr: string): boolean {
   if (!dateStr) return true;
-  const ts = parseArrivalDate(dateStr);
-  if (!ts) return true;
-  const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
-  return ts < twoDaysAgo;
+  const dayDiff = getDayDifference(dateStr);
+  if (dayDiff === null) return true;
+  return dayDiff > 2;
 }
 
 function toDisplayCropName(commodity: string): string {
@@ -102,7 +151,11 @@ async function fetchDataGov(
       max_price:   Number(r.max_price),
       modal_price: Number(r.modal_price),
     }))
-    .sort((a, b) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
+    .sort((a, b) => {
+      const aTs = parseArrivalDate(a.date)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
+      const bTs = parseArrivalDate(b.date)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
+      return aTs - bTs;
+    });
 
   return records;
 }
@@ -130,6 +183,34 @@ router.get("/prices", async (req: Request, res: Response) => {
 
     const numDays = Number(days) || 30;
     const trimmed = records.slice(-numDays);
+    const todayDayTs = startOfUtcDayTs();
+    const recentRangeCount = records.filter((r) => {
+      const dayDiff = getDayDifference(r.date, todayDayTs);
+      return dayDiff !== null && dayDiff >= 1 && dayDiff <= 3;
+    }).length;
+
+    logger.info({
+      route: "/api/prices",
+      crop: commodity,
+      market,
+      state,
+      rawArrivalDatesSample: records.slice(0, 20).map((r) => r.date),
+      parsedArrivalDatesSample: records.slice(0, 20).map((r) => {
+        const parsed = parseArrivalDate(r.date);
+        return {
+          raw: r.date,
+          parsedIsoDay: parsed?.isoDay ?? null,
+          dayDifference: getDayDifference(r.date, todayDayTs),
+        };
+      }),
+      recordCounts: {
+        totalRecords: records.length,
+        requestedDays: numDays,
+        trimmedRecords: trimmed.length,
+        recentRangeRecords: recentRangeCount,
+      },
+    }, "Price pipeline debug stats");
+
     const prices  = trimmed.map(r => r.modal_price);
     const latest  = trimmed[trimmed.length - 1] ?? null;
 
@@ -270,18 +351,25 @@ router.get("/compare", async (req: Request, res: Response) => {
 
     const numDays = Number(days) || 7;
     const latestModeWindowDays = 3;
-    const todayTs = new Date();
+    const todayDayTs = startOfUtcDayTs();
     const recentDateKeys = Array.from({ length: latestModeWindowDays + 1 }, (_, offset) => {
-      const date = new Date(todayTs);
-      date.setDate(todayTs.getDate() - offset);
-      const dd = String(date.getDate()).padStart(2, "0");
-      const mm = String(date.getMonth() + 1).padStart(2, "0");
-      const yyyy = String(date.getFullYear());
+      const date = new Date(todayDayTs - offset * DAY_MS);
+      const dd = String(date.getUTCDate()).padStart(2, "0");
+      const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+      const yyyy = String(date.getUTCFullYear());
       return `${dd}/${mm}/${yyyy}`;
     });
 
+    const recentDateKeysIso = recentDateKeys.map((key) => {
+      const [dd, mm, yyyy] = key.split("/");
+      return `${yyyy}-${mm}-${dd}`;
+    });
+
     const recentDateBatches = await Promise.all(
-      recentDateKeys.map((dateKey) => fetchDataGov(commodity, "", state, 500, dateKey))
+      recentDateKeys.flatMap((dateKey, index) => [
+        fetchDataGov(commodity, "", state, 500, dateKey),
+        fetchDataGov(commodity, "", state, 500, recentDateKeysIso[index]),
+      ])
     );
     const mergedRecentRecords = recentDateBatches.flat();
     const mergedRecentKeys = new Set(
@@ -289,8 +377,32 @@ router.get("/compare", async (req: Request, res: Response) => {
     );
     const recentWindowRecords = [
       ...mergedRecentRecords,
-      ...records.filter((r) => recentDateKeys.includes(r.date) && !mergedRecentKeys.has(`${r.market}|${r.date}|${r.modal_price}`)),
+      ...records.filter((r) => {
+        const dayDiff = getDayDifference(r.date, todayDayTs);
+        return dayDiff !== null && dayDiff >= 0 && dayDiff <= latestModeWindowDays && !mergedRecentKeys.has(`${r.market}|${r.date}|${r.modal_price}`);
+      }),
     ];
+
+    logger.info({
+      route: "/api/compare",
+      crop: commodity,
+      state,
+      rawArrivalDatesSample: records.slice(0, 20).map((r) => r.date),
+      parsedArrivalDatesSample: records.slice(0, 20).map((r) => {
+        const parsed = parseArrivalDate(r.date);
+        return {
+          raw: r.date,
+          parsedIsoDay: parsed?.isoDay ?? null,
+          dayDifference: getDayDifference(r.date, todayDayTs),
+        };
+      }),
+      recordCounts: {
+        totalRecords: records.length,
+        mergedRecentRecords: mergedRecentRecords.length,
+        recentWindowRecords: recentWindowRecords.length,
+      },
+    }, "Recent window debug stats");
+
     const candidateRecords = recentWindowRecords.length > 0 ? recentWindowRecords : records;
 
     // Group by market
@@ -302,12 +414,20 @@ router.get("/compare", async (req: Request, res: Response) => {
 
     // Find the overall latest date to determine "today"
     const allDates = candidateRecords.map(r => r.date);
-    const latestDate = allDates.sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0];
+    const latestDate = allDates.sort((a, b) => {
+      const aTs = parseArrivalDate(a)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
+      const bTs = parseArrivalDate(b)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
+      return bTs - aTs;
+    })[0];
 
     // Build per-mandi summary
     const mandiSummaries = Array.from(byMandi.entries()).map(([mandi, recs]) => {
       // Sort by date asc
-      const sorted = [...recs].sort((a, b) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
+      const sorted = [...recs].sort((a, b) => {
+        const aTs = parseArrivalDate(a.date)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
+        const bTs = parseArrivalDate(b.date)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
+        return aTs - bTs;
+      });
       const latest = sorted[sorted.length - 1];
       // 7-day avg: last N records
       const recent = sorted.slice(-numDays);
@@ -364,24 +484,24 @@ router.get("/crops", async (req: Request, res: Response) => {
 
   try {
     const records = await fetchDataGov("", "", state, 500);
-    const today = new Date();
+    const todayDayTs = startOfUtcDayTs();
     const bucket = new Map<string, { latestTs: number; latestDate: string; recordCount: number }>();
 
     for (const row of records) {
       const commodity = row.commodity?.trim();
       if (!commodity) continue;
-      const ts = parseArrivalDate(row.date);
-      if (!ts) continue;
-      const ageDays = Math.floor((today.getTime() - ts) / (24 * 60 * 60 * 1000));
+      const parsed = parseArrivalDate(row.date);
+      if (!parsed) continue;
+      const ageDays = Math.floor((todayDayTs - parsed.normalizedTs) / DAY_MS);
       if (ageDays < 0 || ageDays > windowDays) continue;
 
       const existing = bucket.get(commodity);
       if (!existing) {
-        bucket.set(commodity, { latestTs: ts, latestDate: row.date, recordCount: 1 });
+        bucket.set(commodity, { latestTs: parsed.normalizedTs, latestDate: row.date, recordCount: 1 });
       } else {
         existing.recordCount += 1;
-        if (ts > existing.latestTs) {
-          existing.latestTs = ts;
+        if (parsed.normalizedTs > existing.latestTs) {
+          existing.latestTs = parsed.normalizedTs;
           existing.latestDate = row.date;
         }
       }
@@ -396,7 +516,8 @@ router.get("/crops", async (req: Request, res: Response) => {
         recordCount: meta.recordCount,
       }))
       .sort((a, b) => {
-        const byDate = parseArrivalDate(b.latestDate) - parseArrivalDate(a.latestDate);
+        const byDate = (parseArrivalDate(b.latestDate)?.normalizedTs ?? Number.MIN_SAFE_INTEGER)
+          - (parseArrivalDate(a.latestDate)?.normalizedTs ?? Number.MIN_SAFE_INTEGER);
         if (byDate !== 0) return byDate;
         const byCount = b.recordCount - a.recordCount;
         if (byCount !== 0) return byCount;

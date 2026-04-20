@@ -17,18 +17,27 @@ export const PRICE_MODE = {
 
 export function parseArrivalDate(dateStr) {
   if (!dateStr || typeof dateStr !== "string") return null;
-  const [dd, mm, yyyy] = dateStr.split("/");
-  let parsed = null;
-  if (dd && mm && yyyy) {
-    parsed = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-  } else {
-    parsed = new Date(dateStr);
+  const trimmed = dateStr.trim();
+  if (!trimmed) return null;
+
+  const ddMmYyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ddMmYyyy) {
+    const day = Number(ddMmYyyy[1]);
+    const month = Number(ddMmYyyy[2]);
+    const year = Number(ddMmYyyy[3]);
+    const utcTs = Date.UTC(year, month - 1, day);
+    const parsed = new Date(utcTs);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const utcTs = Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
+  return new Date(utcTs);
 }
 
 export function startOfDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
 function getFreshnessDays(parsedDate, today = startOfDay(new Date())) {
