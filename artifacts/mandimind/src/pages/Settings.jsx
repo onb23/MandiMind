@@ -1,5 +1,10 @@
 import { useLanguage } from "../context/LanguageContext";
 
+const profileLinks = {
+  portfolio: "",
+  linkedIn: "",
+};
+
 export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
   const feedbackFormUrl = "https://docs.google.com/forms/u/0/";
@@ -108,11 +113,52 @@ export default function Settings() {
           </p>
         </div>
 
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 mt-4">
+          <h3
+            className="text-base font-bold text-[#1e1c10] mb-3"
+            style={{ fontFamily: "Manrope, sans-serif" }}
+          >
+            About MandiMind
+          </h3>
+          <div className="space-y-1.5 text-sm text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+            <p>Built by Omkar Borade</p>
+            <p>Mission: Helping farmers and agri-traders make better market decisions</p>
+            <p>Focus: Maharashtra-first, expanding further</p>
+          </div>
+
+          {(profileLinks.portfolio || profileLinks.linkedIn) && (
+            <div className="mt-3 flex flex-wrap gap-3">
+              {profileLinks.portfolio && (
+                <a
+                  href={profileLinks.portfolio}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm font-medium text-[#004c22] underline underline-offset-2"
+                  style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+                >
+                  Portfolio
+                </a>
+              )}
+              {profileLinks.linkedIn && (
+                <a
+                  href={profileLinks.linkedIn}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm font-medium text-[#004c22] underline underline-offset-2"
+                  style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
+                >
+                  LinkedIn
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+
         <p
-          className="text-center text-xs text-gray-400 mt-8"
+          className="text-center text-xs text-gray-500 mt-8"
           style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}
         >
-          made by omkar borade
+          Made by Omkar Borade
         </p>
       </div>
     </div>
