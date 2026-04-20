@@ -15,6 +15,13 @@ export const PRICE_MODE = {
   RECENT: "latest",
 };
 
+export function getFreshnessMessage(freshnessDays) {
+  if (!Number.isFinite(freshnessDays)) return "Showing latest available";
+  if (freshnessDays === 0) return "Today’s data";
+  if (freshnessDays <= 3) return "Last 3 days";
+  return `Showing latest available (${freshnessDays} days old)`;
+}
+
 export function parseArrivalDate(dateStr) {
   if (!dateStr || typeof dateStr !== "string") return null;
   const trimmed = dateStr.trim();
@@ -120,18 +127,8 @@ export function getMandiAvailabilityFromRecords(records, options = {}) {
   const latest = normalizedRecords[0];
   const freshnessDays = getFreshnessDays(latest.parsedDate, today);
 
-  if (freshnessDays > maxFreshnessDays) {
-    return {
-      bucket: "unavailable",
-      isUsable: false,
-      freshnessDays,
-      todayOption,
-      latestOption,
-    };
-  }
-
   return {
-    bucket: "latest_available",
+    bucket: freshnessDays > maxFreshnessDays ? "latest_older" : "latest_available",
     isUsable: true,
     isLiveToday: false,
     usedDate: latest.date,
@@ -261,12 +258,13 @@ export async function fetchAvailableMandis(cropId, state = "Maharashtra", option
   );
 
   const usableMandis = mandiStatus
-    .filter(Boolean)
-    .filter((item) => item.availability !== "unavailable");
+    .filter(Boolean);
 
   return {
     ...compareResult,
-    mandis: usableMandis,
+    mandis: usableMandis.length > 0
+      ? usableMandis
+      : [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, isUsable: false, availability: "unavailable" }],
   };
 }
 
@@ -283,6 +281,15 @@ export function getMandisForPriceMode(mandis = [], mode = PRICE_MODE.TODAY) {
   return (mandis ?? [])
     .map((item) => {
       const modeOption = isTodayMode ? item?.todayOption : item?.latestOption;
+      if (!modeOption?.isUsable && mode === PRICE_MODE.TODAY && item?.latestOption?.isUsable) {
+        return {
+          ...item,
+          mode: PRICE_MODE.RECENT,
+          modePrice: item.latestOption.price,
+          modeDate: item.latestOption.date,
+          modeFreshnessDays: item.latestOption.freshnessDays,
+        };
+      }
       if (!modeOption?.isUsable) return null;
       return {
         ...item,

@@ -152,9 +152,7 @@ export async function fetchTrend(cropId, market, state = "Maharashtra") {
     `&state=${encodeURIComponent(state)}`;
 
   try {
-    const data = await fetchJsonWithGuard(url, "Unable to fetch live mandi trend");
-    if (data?.source === "error") return data;
-    return data;
+    return await fetchJsonWithGuard(url, "Unable to fetch live mandi trend");
   } catch (err) {
     console.error("[MandiMind] fetchTrend failed:", err);
     return {

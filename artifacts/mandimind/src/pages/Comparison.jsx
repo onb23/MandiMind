@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode } from "../utils/mandiAvailability";
+import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
 
 export default function Comparison() {
@@ -112,6 +112,7 @@ export default function Comparison() {
   const recentModeDate = compareMode === "latest"
     ? displayedMandis[0]?.modeDate || null
     : null;
+  const freshnessBanner = getFreshnessMessage(compareData?.freshnessDays ?? displayedMandis[0]?.modeFreshnessDays);
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -125,6 +126,11 @@ export default function Comparison() {
         {lastUpdated && !loading && (
           <p className="text-xs text-gray-400 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
             {t.updatedThrough}: {lastUpdated}
+          </p>
+        )}
+        {!loading && !error && (
+          <p className="text-xs text-blue-700 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+            {freshnessBanner}
           </p>
         )}
         <select

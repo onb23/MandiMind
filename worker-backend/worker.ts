@@ -19,6 +19,7 @@ export interface Env {
 const RESOURCE_ID = "9ef84268-d588-465a-a308-a864a43d0070";
 const DATA_GOV_BASE = "https://api.data.gov.in/resource";
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const CROP_MAP: Record<string, string> = {
   onion:   "Onion",
@@ -63,14 +64,60 @@ interface PriceRecord {
 
 function parseArrivalDate(d: string): number {
   if (!d || typeof d !== "string") return 0;
-  const slashParts = d.split("/");
-  if (slashParts.length === 3) {
-    const [dd, mm, yyyy] = slashParts;
-    return new Date(`${yyyy}-${mm}-${dd}`).getTime();
+  const trimmed = d.trim();
+  if (!trimmed) return 0;
+  const slashParts = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashParts) {
+    const day = Number(slashParts[1]);
+    const month = Number(slashParts[2]);
+    const year = Number(slashParts[3]);
+    return Date.UTC(year, month - 1, day);
   }
-  const parsed = new Date(d);
+  const parsed = new Date(trimmed);
   const ts = parsed.getTime();
-  return Number.isFinite(ts) ? ts : 0;
+  if (!Number.isFinite(ts)) return 0;
+  return Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
+}
+
+function startOfUtcDayTs(date = new Date()): number {
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function getFreshnessDays(dateStr: string, todayTs = startOfUtcDayTs()): number | null {
+  const ts = parseArrivalDate(dateStr);
+  if (!ts) return null;
+  return Math.max(0, Math.floor((todayTs - ts) / DAY_MS));
+}
+
+function selectWithFallback(records: PriceRecord[], todayTs = startOfUtcDayTs()) {
+  const windows = [3, 5, 7];
+  for (const windowDays of windows) {
+    const filtered = records.filter((r) => {
+      const freshness = getFreshnessDays(r.date, todayTs);
+      return freshness !== null && freshness <= windowDays;
+    });
+    if (filtered.length > 0) {
+      const freshnessDays = getFreshnessDays(
+        filtered[filtered.length - 1]?.date ?? filtered[0]?.date ?? "",
+        todayTs,
+      ) ?? null;
+      return {
+        records: filtered,
+        metadata: { freshnessDays, source: windowDays === 3 ? "live" as const : "fallback" as const },
+      };
+    }
+  }
+
+  const latestTs = records.reduce((max, row) => Math.max(max, parseArrivalDate(row.date)), 0);
+  const latestRecords = records.filter((row) => parseArrivalDate(row.date) === latestTs);
+  const freshest = latestRecords[latestRecords.length - 1] ?? records[records.length - 1] ?? null;
+  return {
+    records: latestRecords.length > 0 ? latestRecords : records.slice(-1),
+    metadata: {
+      freshnessDays: freshest ? getFreshnessDays(freshest.date, todayTs) : null,
+      source: "fallback" as const,
+    },
+  };
 }
 
 function isDataStale(dateStr: string): boolean {
@@ -176,7 +223,8 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
 
   try {
     const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, market, state, Math.max(days, 100));
-    const trimmed = records.slice(-days);
+    const { records: fallbackRecords, metadata } = selectWithFallback(records);
+    const trimmed = (fallbackRecords.length > 0 ? fallbackRecords : records).slice(-days);
     const prices  = trimmed.map(r => r.modal_price);
     const latest  = trimmed[trimmed.length - 1] ?? null;
 
@@ -189,14 +237,23 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
       },
       lastUpdated: latest?.date ?? null,
       stale:       latest ? isDataStale(latest.date) : true,
-      source:      "live",
+      freshnessDays: metadata.freshnessDays,
+      source:      metadata.source,
     };
     cache.set(cacheKey, { data, ts: Date.now() });
     return json(data);
 
   } catch {
     if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
-    return json({ error: "data.gov.in unavailable", data: [], source: "error" }, 502);
+    return json({
+      error: "data.gov.in unavailable",
+      data: [{ date: "", market, commodity, price: 0, min_price: 0, max_price: 0, modal_price: 0 }],
+      currentPrice: null,
+      priceRange: { low: null, high: null },
+      lastUpdated: null,
+      freshnessDays: null,
+      source: "fallback",
+    }, 502);
   }
 }
 
@@ -295,7 +352,12 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
   try {
     const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500);
     if (!records.length) {
-      return json({ mandis: [], lastUpdated: null, source: "live" });
+      return json({
+        mandis: [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
+        lastUpdated: null,
+        freshnessDays: null,
+        source: "fallback",
+      });
     }
 
     const latestModeWindowDays = 3;
@@ -320,7 +382,8 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       ...mergedRecentRecords,
       ...records.filter((r) => recentDateKeys.includes(r.date) && !mergedRecentKeys.has(`${r.market}|${r.date}|${r.modal_price}`)),
     ];
-    const candidateRecords = recentWindowRecords.length > 0 ? recentWindowRecords : records;
+    const selected = selectWithFallback(recentWindowRecords.length > 0 ? recentWindowRecords : records);
+    const candidateRecords = selected.records.length > 0 ? selected.records : records;
 
     const byMandi = new Map<string, PriceRecord[]>();
     for (const r of candidateRecords) {
@@ -350,13 +413,25 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       .filter(m => m.todayPrice > 0)
       .sort((a, b) => b.todayPrice - a.todayPrice);
 
-    const data = { mandis: mandiSummaries, lastUpdated: latestDate, source: "live" };
+    const data = {
+      mandis: mandiSummaries.length > 0
+        ? mandiSummaries
+        : [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: latestDate ?? null, stale: true }],
+      lastUpdated: latestDate,
+      freshnessDays: selected.metadata.freshnessDays,
+      source: selected.metadata.source,
+    };
     cache.set(cacheKey, { data, ts: Date.now() });
     return json(data);
 
   } catch {
     if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
-    return json({ error: "data.gov.in unavailable", mandis: [], source: "error" }, 502);
+    return json({
+      error: "data.gov.in unavailable",
+      mandis: [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
+      freshnessDays: null,
+      source: "fallback",
+    }, 502);
   }
 }
 
