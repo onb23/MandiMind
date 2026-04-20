@@ -105,12 +105,6 @@ export default function Settings() {
           >
             {t.tagline}
           </p>
-          <p
-            className="text-xs text-gray-400 mt-2"
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
-            Version 1.0 — VERSION TEST 031
-          </p>
         </div>
 
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 mt-4">
@@ -158,7 +152,7 @@ export default function Settings() {
           className="text-center text-xs text-gray-500 mt-8"
           style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic" }}
         >
-          Made by Omkar Borade
+          © 2026 MandiMind
         </p>
       </div>
     </div>
