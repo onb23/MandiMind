@@ -14,7 +14,13 @@ export default function FarmerInput() {
 
   const cropInfo  = getCropById(cropId);
   const varieties = getVarietiesByCrop(cropId);
-  const varietyOptions = [...varieties, "Other", "Not sure"];
+  const normalizedVarieties = new Set(
+    varieties.map((value) => value.trim().toLowerCase())
+  );
+  const genericVarieties = ["Other", "Not sure"].filter(
+    (value) => !normalizedVarieties.has(value.toLowerCase())
+  );
+  const varietyOptions = [...varieties, ...genericVarieties];
 
   const [variety,  setVariety]  = useState(varieties[0] || "");
   const [quality,  setQuality]  = useState("");
