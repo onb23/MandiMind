@@ -53,6 +53,7 @@ interface PriceRecord {
   date:        string;
   market:      string;
   district:    string;
+  state:       string;
   commodity:   string;
   price:       number;
   min_price:   number;
@@ -166,6 +167,7 @@ async function fetchDataGov(
   market: string,
   state: string,
   limit = 100,
+  offset = 0,
   arrivalDate?: string,
 ): Promise<PriceRecord[]> {
   if (!apiKey) throw new Error("DATA_GOV_API_KEY not configured");
@@ -174,6 +176,7 @@ async function fetchDataGov(
     "api-key": apiKey,
     format: "json",
     limit: String(limit),
+    offset: String(offset),
   });
   if (commodity) params.set("filters[commodity]", commodity);
   if (market) params.set("filters[market]", market);
@@ -192,6 +195,7 @@ async function fetchDataGov(
   date:        r.arrival_date,
   market:      r.market,
   district:    r.district ?? "",
+  state:       r.state ?? "",
   commodity:   r.commodity,
   price:       Number(r.modal_price),
   min_price:   Number(r.min_price),
@@ -199,6 +203,33 @@ async function fetchDataGov(
   modal_price: Number(r.modal_price),
 }))
     .sort((a: PriceRecord, b: PriceRecord) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
+}
+
+async function fetchDataGovPaginated(
+  apiKey: string,
+  commodity: string,
+  market: string,
+  state: string,
+  {
+    limit = 500,
+    enoughRows = 2500,
+    maxOffset = 5000,
+    arrivalDate,
+  }: {
+    limit?: number;
+    enoughRows?: number;
+    maxOffset?: number;
+    arrivalDate?: string;
+  } = {},
+): Promise<PriceRecord[]> {
+  const allRecords: PriceRecord[] = [];
+  for (let offset = 0; offset <= maxOffset; offset += limit) {
+    const page = await fetchDataGov(apiKey, commodity, market, state, limit, offset, arrivalDate);
+    allRecords.push(...page);
+    if (page.length < limit) break;
+    if (allRecords.length >= enoughRows) break;
+  }
+  return allRecords;
 }
 
 // ─── Route handlers ───────────────────────────────────────────────────────────
@@ -350,8 +381,30 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
   }
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500);
-    if (!records.length) {
+    const records = await fetchDataGovPaginated(env.DATA_GOV_API_KEY, "", "", "", {
+      limit: 500,
+      enoughRows: 2500,
+      maxOffset: 5000,
+    });
+    const cropFilteredRecords = records.filter(
+      (r) => (r.commodity || "").trim().toLowerCase() === commodity.trim().toLowerCase()
+    );
+    const stateFilteredRecords = cropFilteredRecords.filter(
+      (r) => (r.state || "").trim().toLowerCase() === state.trim().toLowerCase()
+    );
+
+    console.log(
+      JSON.stringify({
+        route: "/api/compare",
+        crop: commodity,
+        state,
+        totalRowsFetched: records.length,
+        rowsAfterCropFilter: cropFilteredRecords.length,
+        rowsAfterStateFilter: stateFilteredRecords.length,
+      })
+    );
+
+    if (!stateFilteredRecords.length) {
       return json({
         mandis: [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
         lastUpdated: null,
@@ -360,30 +413,8 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       });
     }
 
-    const latestModeWindowDays = 3;
-    const todayTs = new Date();
-    const recentDateKeys = Array.from({ length: latestModeWindowDays + 1 }, (_, offset) => {
-      const date = new Date(todayTs);
-      date.setDate(todayTs.getDate() - offset);
-      const dd = String(date.getDate()).padStart(2, "0");
-      const mm = String(date.getMonth() + 1).padStart(2, "0");
-      const yyyy = String(date.getFullYear());
-      return `${dd}/${mm}/${yyyy}`;
-    });
-
-    const recentDateBatches = await Promise.all(
-      recentDateKeys.map((dateKey) => fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500, dateKey))
-    );
-    const mergedRecentRecords = recentDateBatches.flat();
-    const mergedRecentKeys = new Set(
-      mergedRecentRecords.map((r) => `${r.market}|${r.date}|${r.modal_price}`)
-    );
-    const recentWindowRecords = [
-      ...mergedRecentRecords,
-      ...records.filter((r) => recentDateKeys.includes(r.date) && !mergedRecentKeys.has(`${r.market}|${r.date}|${r.modal_price}`)),
-    ];
-    const selected = selectWithFallback(recentWindowRecords.length > 0 ? recentWindowRecords : records);
-    const candidateRecords = selected.records.length > 0 ? selected.records : records;
+    const selected = selectWithFallback(stateFilteredRecords);
+    const candidateRecords = selected.records.length > 0 ? selected.records : stateFilteredRecords;
 
     const byMandi = new Map<string, PriceRecord[]>();
     for (const r of candidateRecords) {
