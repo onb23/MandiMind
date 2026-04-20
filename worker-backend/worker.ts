@@ -60,6 +60,11 @@ interface PriceRecord {
   modal_price: number;
 }
 
+interface RecommendationTraceStage {
+  count: number;
+  sample: Array<{ market: string; date: string; commodity: string }>;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function parseArrivalDate(d: string): number {
@@ -145,6 +150,22 @@ function getActiveCropFallback() {
     commodity,
     latestDate: null,
     recordCount: 0,
+  }));
+}
+
+function normalizeMarketName(market: string): string {
+  return (market ?? "")
+    .toString()
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function sampleRecords(records: PriceRecord[], sampleSize = 5) {
+  return records.slice(0, sampleSize).map((r) => ({
+    market: r.market ?? "",
+    date: r.date ?? "",
+    commodity: r.commodity ?? "",
   }));
 }
 
@@ -524,19 +545,70 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
+  const tracingCrop = "Onion";
+  const traceEnabled = commodity.trim().toLowerCase() === tracingCrop.toLowerCase();
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, 500);
-
-    const usable = records.filter(
+    const upstreamLimit = 500;
+    const upstreamRecords = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, upstreamLimit);
+    const afterDateParsing = upstreamRecords.filter((r) => parseArrivalDate(r.date) > 0);
+    const afterCropFiltering = afterDateParsing.filter(
+      (r) => (r.commodity ?? "").trim().toLowerCase() === commodity.trim().toLowerCase()
+    );
+    const afterMandiNormalization = afterCropFiltering.filter((r) => normalizeMarketName(r.market).length > 0);
+    const usable = afterMandiNormalization.filter(
       (r) =>
         r &&
         r.market &&
         r.commodity &&
-        r.commodity.trim().toLowerCase() === commodity.trim().toLowerCase() &&
         r.modal_price !== null &&
-        r.modal_price !== undefined
+        r.modal_price !== undefined &&
+        Number.isFinite(r.modal_price) &&
+        r.modal_price > 0
     );
+    const finalRecords = [...usable].sort((a, b) => b.modal_price - a.modal_price);
+
+    const cropUniverseWindowDays = 15;
+    const cropUniverseRecords = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, upstreamLimit);
+    const cropUniverseTodayTs = startOfUtcDayTs();
+    const cropUniverseRecent = cropUniverseRecords.filter((row) => {
+      const freshnessDays = getFreshnessDays(row.date, cropUniverseTodayTs);
+      return freshnessDays !== null && freshnessDays >= 0 && freshnessDays <= cropUniverseWindowDays;
+    });
+    const cropInRecentUniverse = cropUniverseRecent.some(
+      (row) => (row.commodity ?? "").trim().toLowerCase() === commodity.trim().toLowerCase(),
+    );
+    const cropInFetchedDataset = upstreamRecords.some(
+      (row) => (row.commodity ?? "").trim().toLowerCase() === commodity.trim().toLowerCase(),
+    );
+
+    const pipelineTrace = {
+      crop: commodity,
+      state,
+      fetchScope: {
+        resultLimitPerRequest: upstreamLimit,
+        pagination: "No offset used; first page only",
+        mandiLimit: "No explicit mandi cap; constrained by first-page row limit",
+        dateWindowLimit: "No fetch-time date filter in recommendation endpoint",
+      },
+      cropPresence: {
+        cropInRecentUniverse,
+        cropInFetchedDataset,
+        cropUniverseWindowDays,
+      },
+      stages: {
+        rawUpstreamFetched: { count: upstreamRecords.length, sample: sampleRecords(upstreamRecords) } satisfies RecommendationTraceStage,
+        afterDateParsing: { count: afterDateParsing.length, sample: sampleRecords(afterDateParsing) } satisfies RecommendationTraceStage,
+        afterCropFiltering: { count: afterCropFiltering.length, sample: sampleRecords(afterCropFiltering) } satisfies RecommendationTraceStage,
+        afterMandiNormalization: { count: afterMandiNormalization.length, sample: sampleRecords(afterMandiNormalization) } satisfies RecommendationTraceStage,
+        afterUsabilityFiltering: { count: usable.length, sample: sampleRecords(usable) } satisfies RecommendationTraceStage,
+        finalRecordsReturned: { count: finalRecords.length, sample: sampleRecords(finalRecords) } satisfies RecommendationTraceStage,
+      },
+    };
+
+    if (traceEnabled) {
+      console.log("[recommendation-trace]", JSON.stringify(pipelineTrace));
+    }
 
     if (!usable.length) {
       return json({
@@ -545,10 +617,11 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
         reason: "No usable mandi price records found for this crop.",
         summary: "No recommendation available.",
         markets: [],
+        debugTrace: traceEnabled ? pipelineTrace : undefined,
       });
     }
 
-    const sorted = [...usable].sort((a, b) => b.modal_price - a.modal_price);
+    const sorted = finalRecords;
 
     const best = sorted[0];
     const worst = sorted[sorted.length - 1];
@@ -593,6 +666,7 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
       marketsChecked: sorted.length,
       lastUpdated: best.date,
       stale: isDataStale(best.date),
+      debugTrace: traceEnabled ? pipelineTrace : undefined,
     });
   } catch {
     return json({
