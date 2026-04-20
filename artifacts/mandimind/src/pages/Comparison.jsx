@@ -113,6 +113,7 @@ export default function Comparison() {
     ? displayedMandis[0]?.modeDate || null
     : null;
   const freshnessBanner = getFreshnessMessage(compareData?.freshnessDays ?? displayedMandis[0]?.modeFreshnessDays);
+  const showModeBanner = showTodayUpdatingNote || compareMode === "latest";
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -128,7 +129,7 @@ export default function Comparison() {
             {t.updatedThrough}: {lastUpdated}
           </p>
         )}
-        {!loading && !error && (
+        {!loading && !error && !showModeBanner && (
           <p className="text-xs text-blue-700 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
             {freshnessBanner}
           </p>
@@ -168,14 +169,13 @@ export default function Comparison() {
             {t.priceTypeLatest}
           </button>
         </div>
-        {!loading && !error && (showTodayUpdatingNote || compareMode === "latest") && (
+        {!loading && !error && showModeBanner && (
           <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
-            {showTodayUpdatingNote && (
+            {showTodayUpdatingNote ? (
               <p className="text-xs text-blue-800" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                 {t.todayModeUpdatingNote}
               </p>
-            )}
-            {compareMode === "latest" && (
+            ) : (
               <p className={`text-xs ${recentModeDate ? "text-blue-800" : "text-blue-600"}`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                 {recentModeDate
                   ? t.recentModeDateNoteCompare.replace("{date}", recentModeDate)

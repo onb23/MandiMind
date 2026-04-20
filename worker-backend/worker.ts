@@ -308,7 +308,7 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
-  const cacheKey  = `prices:${commodity}:${market}:${state}`;
+  const cacheKey  = `prices:${commodity}:${market}:${state}:${days}`;
   const cached    = cache.get(cacheKey);
 
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -316,18 +316,49 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
   }
 
   try {
-    const records = await fetchDataGov(env.DATA_GOV_API_KEY, "", market, state, Math.max(days, 200));
-    const cropMatchedRecords = records.filter((r) => commodityMatches(commodity, r.commodity));
+    const exactMarketRecords = await fetchDataGov(env.DATA_GOV_API_KEY, "", market, state, Math.max(days, 200));
+    let cropMatchedRecords = exactMarketRecords.filter((r) => commodityMatches(commodity, r.commodity));
+    let usedMarketFallback = false;
+    let marketMatchType: "exact" | "fuzzy" = "exact";
+
+    if (!cropMatchedRecords.length) {
+      usedMarketFallback = true;
+      const fallbackRecords = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 1000);
+      const cropScoped = fallbackRecords.filter((r) => commodityMatches(commodity, r.commodity));
+      const normalizedMarket = normalizeText(market);
+      const exactNormalized = cropScoped.filter((r) => normalizeText(r.market) === normalizedMarket);
+      const fuzzyNormalized = cropScoped.filter((r) => normalizeText(r.market).includes(normalizedMarket));
+
+      cropMatchedRecords = exactNormalized.length > 0 ? exactNormalized : fuzzyNormalized;
+      marketMatchType = exactNormalized.length > 0 ? "exact" : "fuzzy";
+    }
 
     console.log(
       JSON.stringify({
         route: "/api/prices",
         selectedCrop: crop,
         normalizedSelectedCrop: normalizeText(commodity),
-        sampleCommodityValues: sampleCommodityValues(records),
+        sampleCommodityValues: sampleCommodityValues(exactMarketRecords),
+        requestedMarket: market,
         matchedRows: cropMatchedRecords.length,
+        usedMarketFallback,
+        marketMatchType,
       })
     );
+
+    if (!cropMatchedRecords.length) {
+      const emptyResponse = {
+        data: [],
+        currentPrice: null,
+        priceRange: { low: null, high: null },
+        lastUpdated: null,
+        stale: true,
+        freshnessDays: null,
+        source: "empty",
+      };
+      cache.set(cacheKey, { data: emptyResponse, ts: Date.now() });
+      return json(emptyResponse);
+    }
 
     const { records: fallbackRecords, metadata } = selectWithFallback(cropMatchedRecords);
     const trimmed = (fallbackRecords.length > 0 ? fallbackRecords : cropMatchedRecords).slice(-days);
@@ -353,7 +384,7 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
     if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
     return json({
       error: "data.gov.in unavailable",
-      data: [{ date: "", market, commodity, price: 0, min_price: 0, max_price: 0, modal_price: 0 }],
+      data: [],
       currentPrice: null,
       priceRange: { low: null, high: null },
       lastUpdated: null,

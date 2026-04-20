@@ -3,7 +3,7 @@ import { getCropNames } from "../data/mockPrices";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_STATE = "Maharashtra";
-const DEFAULT_MAX_FRESHNESS_DAYS = 7;
+const DEFAULT_MAX_FRESHNESS_DAYS = 3;
 
 export const DATA_FRESHNESS = {
   LIVE: "LIVE",
@@ -18,7 +18,7 @@ export const PRICE_MODE = {
 export function getFreshnessMessage(freshnessDays) {
   if (!Number.isFinite(freshnessDays)) return "Showing latest available";
   if (freshnessDays === 0) return "Today’s data";
-  if (freshnessDays <= DEFAULT_MAX_FRESHNESS_DAYS) return "Recent mode (up to 7 days)";
+  if (freshnessDays <= DEFAULT_MAX_FRESHNESS_DAYS) return "Recent mode (up to 3 days)";
   return `Showing latest available data (${freshnessDays} days old)`;
 }
 
@@ -222,7 +222,7 @@ export async function fetchAvailableMandis(cropId, state = "Maharashtra", option
   const {
     compareDays = 30,
     historyDays = 30,
-    recentWindowDays = 7,
+    recentWindowDays = DEFAULT_MAX_FRESHNESS_DAYS,
   } = options;
 
   const compareResult = await fetchCompare(cropId, state, compareDays);
@@ -302,8 +302,7 @@ export function getMandisForPriceMode(mandis = [], mode = PRICE_MODE.TODAY) {
     .map((item) => {
       const modeRow = isTodayMode
         ? item?.todayRow
-        : item?.recentRow || item?.latestAvailableRow;
-      const fallbackToLatest = !isTodayMode && !item?.recentRow && Boolean(item?.latestAvailableRow);
+        : item?.recentRow;
       const modeFreshnessDays = modeRow ? getFreshnessDays(modeRow.parsedDate) : null;
       return {
         ...item,
@@ -312,7 +311,7 @@ export function getMandisForPriceMode(mandis = [], mode = PRICE_MODE.TODAY) {
         modeDate: modeRow?.date ?? null,
         modeFreshnessDays,
         modeHasData: Boolean(modeRow),
-        modeFallbackToLatest: fallbackToLatest,
+        modeFallbackToLatest: false,
       };
     })
     .sort((a, b) => a.mandi.localeCompare(b.mandi));
