@@ -27,6 +27,10 @@ const CROP_MAP: Record<string, string> = {
   wheat:   "Wheat",
   soybean: "Soybean",
   cotton:  "Cotton(Unginned)",
+  banana:  "Banana",
+  rice:    "Rice",
+  potato:  "Potato",
+  mango:   "Mango",
 };
 
 const COMMODITY_DISPLAY_MAP: Record<string, string> = {
@@ -72,16 +76,32 @@ function parseArrivalDate(d: string): number {
   if (!d || typeof d !== "string") return 0;
   const trimmed = d.trim();
   if (!trimmed) return 0;
+
+  // dd/mm/yyyy
   const slashParts = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slashParts) {
     const day = Number(slashParts[1]);
     const month = Number(slashParts[2]);
     const year = Number(slashParts[3]);
-    return Date.UTC(year, month - 1, day);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return Date.UTC(year, month - 1, day);
+    }
   }
-  const parsed = new Date(trimmed);
-  const ts = parsed.getTime();
+
+  // ISO-like strings (yyyy-mm-dd and datetime variants)
+  const isoParts = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[T\s].*)/);
+  if (isoParts) {
+    const year = Number(isoParts[1]);
+    const month = Number(isoParts[2]);
+    const day = Number(isoParts[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return Date.UTC(year, month - 1, day);
+    }
+  }
+
+  const ts = Date.parse(trimmed);
   if (!Number.isFinite(ts)) return 0;
+  const parsed = new Date(ts);
   return Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
 }
 
@@ -170,7 +190,7 @@ function sampleRecords(records: PriceRecord[], sampleSize = 5) {
   }));
 }
 
-function normalizeCommodity(value: string): string {
+function normalizeText(value: string): string {
   return (value ?? "")
     .toString()
     .trim()
@@ -179,10 +199,10 @@ function normalizeCommodity(value: string): string {
 }
 
 function commodityMatches(selectedCrop: string, datasetCommodity: string): boolean {
-  const normalizedCrop = normalizeCommodity(selectedCrop);
-  const normalizedCommodity = normalizeCommodity(datasetCommodity);
+  const normalizedCrop = normalizeText(selectedCrop);
+  const normalizedCommodity = normalizeText(datasetCommodity);
   if (!normalizedCrop || !normalizedCommodity) return false;
-  return normalizedCommodity.includes(normalizedCrop);
+  return normalizedCommodity.includes(normalizedCrop) || normalizedCrop.includes(normalizedCommodity);
 }
 
 function sampleCommodityValues(records: PriceRecord[], sampleSize = 8): string[] {
@@ -266,6 +286,9 @@ async function fetchDataGovPaginated(
   for (let offset = 0; offset <= maxOffset; offset += limit) {
     const page = await fetchDataGov(apiKey, commodity, market, state, limit, offset, arrivalDate);
     allRecords.push(...page);
+    if (offset > 0 && page.length > 0) {
+      console.log(JSON.stringify({ route: "fetchDataGovPaginated", limit, offset, pageRows: page.length, totalRows: allRecords.length }));
+    }
     if (page.length < limit) break;
     if (allRecords.length >= enoughRows) break;
   }
@@ -300,7 +323,7 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
       JSON.stringify({
         route: "/api/prices",
         selectedCrop: crop,
-        normalizedSelectedCrop: normalizeCommodity(commodity),
+        normalizedSelectedCrop: normalizeText(commodity),
         sampleCommodityValues: sampleCommodityValues(records),
         matchedRows: cropMatchedRecords.length,
       })
@@ -441,9 +464,9 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
     const cropFilteredRecords = records.filter(
       (r) => commodityMatches(commodity, r.commodity)
     );
-    const normalizedState = state.trim().toLowerCase();
+    const normalizedState = normalizeText(state);
     const stateFilteredRecords = cropFilteredRecords.filter((r) => {
-      const rowState = (r.state || "").trim().toLowerCase();
+      const rowState = normalizeText(r.state || "");
       if (!rowState || !normalizedState) return false;
       return rowState.includes(normalizedState) || normalizedState.includes(rowState);
     });
@@ -454,7 +477,7 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       JSON.stringify({
         route: "/api/compare",
         selectedCrop: crop,
-        normalizedSelectedCrop: normalizeCommodity(commodity),
+        normalizedSelectedCrop: normalizeText(commodity),
         sampleCommodityValues: sampleCommodityValues(records),
         state,
         totalRowsFetched: records.length,
@@ -651,7 +674,7 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
 
     const pipelineTrace = {
       crop: commodity,
-      normalizedSelectedCrop: normalizeCommodity(commodity),
+      normalizedSelectedCrop: normalizeText(commodity),
       state,
       fetchScope: {
         resultLimitPerRequest: upstreamLimit,
@@ -758,6 +781,63 @@ async function handleHealth(): Promise<Response> {
   });
 }
 
+async function handleDebug(params: URLSearchParams, env: Env): Promise<Response> {
+  const state = params.get("state") ?? "";
+  const records = await fetchDataGovPaginated(env.DATA_GOV_API_KEY, "", "", state, {
+    limit: 500,
+    enoughRows: 3000,
+    maxOffset: 5000,
+  });
+
+  return json({
+    totalRows: records.length,
+    sampleRows: records.slice(0, 10).map((r) => ({
+      commodity: r.commodity,
+      market: r.market,
+      state: r.state,
+      district: r.district,
+      arrival_date: r.date,
+      modal_price: r.modal_price,
+    })),
+  });
+}
+
+async function handleDebugMatch(params: URLSearchParams, env: Env): Promise<Response> {
+  const crop = params.get("crop") ?? "";
+  const state = params.get("state") ?? "";
+  const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
+  const normalizedState = normalizeText(state);
+  const records = await fetchDataGovPaginated(env.DATA_GOV_API_KEY, "", "", "", {
+    limit: 500,
+    enoughRows: 3000,
+    maxOffset: 5000,
+  });
+
+  const cropMatchedRows = records.filter((r) => commodityMatches(commodity, r.commodity));
+  const stateMatchedRows = cropMatchedRows.filter((r) => {
+    const rowState = normalizeText(r.state || "");
+    if (!normalizedState || !rowState) return false;
+    return rowState.includes(normalizedState) || normalizedState.includes(rowState);
+  });
+
+  const toSampleRow = (r: PriceRecord) => ({
+    commodity: r.commodity,
+    market: r.market,
+    state: r.state,
+    district: r.district,
+    arrival_date: r.date,
+    modal_price: r.modal_price,
+  });
+
+  return json({
+    totalRows: records.length,
+    cropMatches: cropMatchedRows.length,
+    stateMatches: stateMatchedRows.length,
+    cropSamples: cropMatchedRows.slice(0, 10).map(toSampleRow),
+    stateSamples: stateMatchedRows.slice(0, 10).map(toSampleRow),
+  });
+}
+
 // ─── Main fetch handler ───────────────────────────────────────────────────────
 
 export default {
@@ -783,11 +863,13 @@ export default {
     }
 
     if (path === "/api/health")         return handleHealth();
-if (path === "/api/prices")         return handlePrices(params, env);
-if (path === "/api/trend")          return handleTrend(params, env);
-if (path === "/api/compare")        return handleCompare(params, env);
-if (path === "/api/crops")          return handleCrops(params, env);
-if (path === "/api/recommendation") return handleRecommendation(params, env);
+    if (path === "/api/prices")         return handlePrices(params, env);
+    if (path === "/api/trend")          return handleTrend(params, env);
+    if (path === "/api/compare")        return handleCompare(params, env);
+    if (path === "/api/crops")          return handleCrops(params, env);
+    if (path === "/api/recommendation") return handleRecommendation(params, env);
+    if (path === "/api/debug")          return handleDebug(params, env);
+    if (path === "/api/debug/match")    return handleDebugMatch(params, env);
 
     return json({ error: "Not found" }, 404);
   },
