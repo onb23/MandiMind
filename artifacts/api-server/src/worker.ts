@@ -174,7 +174,29 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
         matchedRows: cropMatchedRecords.length,
       })
     );
+let cropMatchedRecords = await fetchDataGov(
+  env.DATA_GOV_API_KEY,
+  commodity,
+  market,
+  state,
+  Math.max(days, 200)
+);
 
+if (!cropMatchedRecords.length && market) {
+  const broader = await fetchDataGov(
+    env.DATA_GOV_API_KEY,
+    commodity,
+    "",
+    state,
+    1000
+  );
+
+  const requestedMarket = normalizeCommodity(market);
+
+  cropMatchedRecords = broader.filter((r) =>
+    normalizeCommodity(r.market).includes(requestedMarket)
+  );
+}
     const trimmed = cropMatchedRecords.slice(-days);
     const prices = trimmed.map((r) => r.modal_price);
     const latest = trimmed[trimmed.length - 1] ?? null;
