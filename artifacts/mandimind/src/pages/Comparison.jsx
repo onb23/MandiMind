@@ -68,7 +68,7 @@ export default function Comparison() {
     return a.mandi.localeCompare(b.mandi);
   };
   const displayedMandis = [...modeMandis].sort(sortFn);
-  const bestMandi = displayedMandis[0] || null;
+  const bestMandi = displayedMandis.find((item) => Number.isFinite(item.modePrice) && item.modePrice > 0) || null;
   const bestLabel = bestMandi
     ? compareMode === "today"
       ? t.comparisonBestPriceToday
@@ -214,17 +214,6 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && mandis.length > 0 && displayedMandis.length === 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
-            <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {compareMode === "today" ? t.comparisonNoTodayMandis : t.comparisonNoRecentMandis}
-            </p>
-            <p className="text-xs text-amber-500 mt-1">
-              {compareMode === "today" ? t.comparisonTryLatestMode : t.comparisonTryTodayMode}
-            </p>
-          </div>
-        )}
-
         {!loading && !error && mandis.length > 0 && (
           <>
             {insightType && (
@@ -274,10 +263,12 @@ export default function Comparison() {
                       freshnessDays={item.modeFreshnessDays}
                       freshnessText={
                         compareMode === "today"
-                          ? t.today
+                          ? item.modeHasData
+                            ? t.today
+                            : "Today unavailable"
                           : item.modeFreshnessDays
                             ? (item.modeFreshnessDays === 1 ? t.dayOld : t.daysOld).replace("{days}", item.modeFreshnessDays)
-                              : t.latestAvailable
+                            : t.latestAvailable
                       }
                       isBest={idx === 0}
                       rank={idx + 1}

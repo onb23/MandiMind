@@ -66,77 +66,92 @@ export function classifyByDate(dateStr, today = startOfDay(new Date())) {
   return { freshness: DATA_FRESHNESS.STALE, freshnessDays, parsedDate };
 }
 
-export function getMandiAvailabilityFromRecords(records, options = {}) {
-  const { maxFreshnessDays = DEFAULT_MAX_FRESHNESS_DAYS } = options;
+function normalizeRawRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const mandi = typeof row.market === "string" ? row.market.trim() : "";
+  if (!mandi) return null;
+  const price = row.modal_price ?? row.price;
+  const parsedDate = parseArrivalDate(row.date);
+  if (!Number.isFinite(price) || !parsedDate) return null;
+  return {
+    mandi,
+    price,
+    date: row.date,
+    parsedDate,
+    raw: row,
+  };
+}
+
+function selectBestRow(rows, predicate = () => true) {
+  const matching = rows.filter(predicate);
+  if (!matching.length) return null;
+  return matching.sort((a, b) => {
+    const byDate = b.parsedDate.getTime() - a.parsedDate.getTime();
+    if (byDate !== 0) return byDate;
+    return b.price - a.price;
+  })[0];
+}
+
+function deriveMandiRows(rows, options = {}) {
+  const { recentWindowDays = DEFAULT_MAX_FRESHNESS_DAYS } = options;
   const today = startOfDay(new Date());
-
-  const normalizedRecords = (records ?? [])
-    .map((row) => {
-      const price = row.modal_price ?? row.price;
-      const parsedDate = parseArrivalDate(row.date);
-      if (!Number.isFinite(price) || !parsedDate) return null;
-      return { price, date: row.date, parsedDate };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime());
-
-  if (!normalizedRecords.length) {
-    return {
-      bucket: "unavailable",
-      isUsable: false,
-      todayOption: { isUsable: false, price: null, date: null, freshnessDays: null },
-      latestOption: { isUsable: false, price: null, date: null, freshnessDays: null },
-    };
-  }
-
-  const liveToday = normalizedRecords.find(
-    (row) => startOfDay(row.parsedDate).getTime() === today.getTime()
-  );
-
-  const latestWithinWindow = normalizedRecords.find((row) => {
+  const todayTs = today.getTime();
+  const sortedRows = [...rows].sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime());
+  const todayRow = selectBestRow(sortedRows, (row) => startOfDay(row.parsedDate).getTime() === todayTs);
+  const recentRow = selectBestRow(sortedRows, (row) => {
     const freshnessDays = getFreshnessDays(row.parsedDate, today);
-    return freshnessDays >= 1 && freshnessDays <= maxFreshnessDays;
+    return freshnessDays >= 1 && freshnessDays <= recentWindowDays;
   });
+  const latestAvailableRow = sortedRows[0] ?? null;
 
-  const todayOption = liveToday
-    ? { isUsable: true, price: liveToday.price, date: liveToday.date, freshnessDays: 0 }
-    : { isUsable: false, price: null, date: null, freshnessDays: null };
-
-  const latestOption = latestWithinWindow
-    ? {
-        isUsable: true,
-        price: latestWithinWindow.price,
-        date: latestWithinWindow.date,
-        freshnessDays: getFreshnessDays(latestWithinWindow.parsedDate, today),
-    }
-    : { isUsable: false, price: null, date: null, freshnessDays: null };
-
-  if (liveToday) {
-    return {
-      bucket: "live_today",
-      isUsable: true,
-      isLiveToday: true,
-      usedDate: liveToday.date,
-      freshnessDays: 0,
-      selectedPrice: liveToday.price,
-      todayOption,
-      latestOption,
-    };
-  }
-
-  const latest = normalizedRecords[0];
-  const freshnessDays = getFreshnessDays(latest.parsedDate, today);
+  const latestFreshnessDays = latestAvailableRow
+    ? getFreshnessDays(latestAvailableRow.parsedDate, today)
+    : null;
 
   return {
-    bucket: freshnessDays > maxFreshnessDays ? "latest_older" : "latest_available",
-    isUsable: true,
-    isLiveToday: false,
-    usedDate: latest.date,
-    freshnessDays,
-    selectedPrice: latest.price,
-    todayOption,
-    latestOption,
+    todayRow,
+    recentRow,
+    latestAvailableRow,
+    todayOption: todayRow
+      ? { isUsable: true, price: todayRow.price, date: todayRow.date, freshnessDays: 0 }
+      : { isUsable: false, price: null, date: null, freshnessDays: null },
+    latestOption: recentRow
+      ? {
+          isUsable: true,
+          price: recentRow.price,
+          date: recentRow.date,
+          freshnessDays: getFreshnessDays(recentRow.parsedDate, today),
+        }
+      : { isUsable: false, price: null, date: null, freshnessDays: null },
+    bucket: todayRow
+      ? "live_today"
+      : latestAvailableRow
+        ? "latest_available"
+        : "unavailable",
+    isUsable: Boolean(latestAvailableRow),
+    usedDate: latestAvailableRow?.date ?? null,
+    freshnessDays: latestFreshnessDays,
+    selectedPrice: latestAvailableRow?.price ?? null,
   };
+}
+
+export function getMandiAvailabilityFromRecords(records, options = {}) {
+  const { maxFreshnessDays = DEFAULT_MAX_FRESHNESS_DAYS } = options;
+  const normalizedRecords = (records ?? [])
+    .map((row) => {
+      const price = row?.price ?? row?.modal_price;
+      const parsedDate = parseArrivalDate(row?.date);
+      if (!Number.isFinite(price) || !parsedDate) return null;
+      return {
+        mandi: typeof row?.market === "string" ? row.market : "Unknown",
+        price,
+        date: row.date,
+        parsedDate,
+      };
+    })
+    .filter(Boolean);
+  const derived = deriveMandiRows(normalizedRecords, { recentWindowDays: maxFreshnessDays });
+  return derived;
 }
 
 function getRecentValidHistoryCount(priceRows, recentWindowDays = 7) {
@@ -205,10 +220,9 @@ export async function fetchAvailableMandis(cropId, state = "Maharashtra", option
   }
 
   const {
-    compareDays = 7,
+    compareDays = 30,
     historyDays = 30,
     recentWindowDays = 7,
-    minHistoryPoints = 3,
   } = options;
 
   const compareResult = await fetchCompare(cropId, state, compareDays);
@@ -222,49 +236,55 @@ export async function fetchAvailableMandis(cropId, state = "Maharashtra", option
   }
 
   const compareMandis = Array.isArray(compareResult?.mandis) ? compareResult.mandis : [];
+  const mandiNames = compareMandis
+    .map((item) => (typeof item?.mandi === "string" ? item.mandi.trim() : ""))
+    .filter((name) => name && name !== "No mandi data");
 
-  const mandiStatus = await Promise.all(
-    compareMandis.map(async (mandiItem) => {
-      const mandiName = mandiItem?.mandi;
-
-      if (!mandiName) return null;
-
+  const priceResults = await Promise.all(
+    mandiNames.map(async (mandiName) => {
       const priceResult = await fetchPrices(cropId, mandiName, state, historyDays);
-      const mandiAvailability = getMandiAvailabilityFromRecords(priceResult?.data, {
-        maxFreshnessDays: DEFAULT_MAX_FRESHNESS_DAYS,
-      });
-      const recentHistoryCount = getRecentValidHistoryCount(priceResult?.data, recentWindowDays);
-
-      const availability = classifyMandiData({
-        mandiAvailability,
-        recentHistoryCount,
-        minHistoryPoints,
-      });
-
-      return {
-        ...mandiItem,
-        ...mandiAvailability,
-        todayPrice: mandiAvailability.selectedPrice ?? mandiItem.todayPrice,
-        currentPrice: mandiAvailability.todayOption?.price ?? null,
-        latestPrice: mandiAvailability.latestOption?.price ?? null,
-        todayDate: mandiAvailability.todayOption?.date ?? null,
-        latestDate: mandiAvailability.latestOption?.date ?? null,
-        latestFreshnessDays: mandiAvailability.latestOption?.freshnessDays ?? null,
-        lastUpdated: mandiAvailability.usedDate ?? mandiItem.lastUpdated,
-        availability,
-        recentHistoryCount,
-      };
+      const rows = (priceResult?.data ?? []).map(normalizeRawRow).filter(Boolean);
+      return { mandiName, rows };
     })
   );
 
-  const usableMandis = mandiStatus
-    .filter(Boolean);
+  const cropRows = priceResults.flatMap((result) => result.rows);
+  const groupedByMandi = cropRows.reduce((acc, row) => {
+    if (!acc.has(row.mandi)) acc.set(row.mandi, []);
+    acc.get(row.mandi).push(row);
+    return acc;
+  }, new Map());
+
+  const mandiStatus = Array.from(groupedByMandi.entries()).map(([mandi, rows]) => {
+    const derivedRows = deriveMandiRows(rows, { recentWindowDays });
+    const recentHistoryCount = getRecentValidHistoryCount(rows, recentWindowDays);
+    return {
+      mandi,
+      ...derivedRows,
+      todayPrice: derivedRows.todayRow?.price ?? null,
+      currentPrice: derivedRows.todayRow?.price ?? null,
+      latestPrice: derivedRows.latestAvailableRow?.price ?? null,
+      todayDate: derivedRows.todayRow?.date ?? null,
+      latestDate: derivedRows.latestAvailableRow?.date ?? null,
+      latestFreshnessDays: derivedRows.latestAvailableRow
+        ? getFreshnessDays(derivedRows.latestAvailableRow.parsedDate)
+        : null,
+      lastUpdated: derivedRows.latestAvailableRow?.date ?? null,
+      availability: derivedRows.todayRow ? "full" : "fallback_recent",
+      recentHistoryCount,
+      avgPrice: rows.length
+        ? Math.round(rows.reduce((sum, row) => sum + row.price, 0) / rows.length)
+        : null,
+    };
+  });
+
+  const newestCropRow = cropRows.sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime())[0] ?? null;
+  const freshnessDays = newestCropRow ? getFreshnessDays(newestCropRow.parsedDate) : null;
 
   return {
     ...compareResult,
-    mandis: usableMandis.length > 0
-      ? usableMandis
-      : [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, isUsable: false, availability: "unavailable" }],
+    mandis: mandiStatus,
+    freshnessDays,
   };
 }
 
@@ -280,26 +300,22 @@ export function getMandisForPriceMode(mandis = [], mode = PRICE_MODE.TODAY) {
   const isTodayMode = mode === PRICE_MODE.TODAY;
   return (mandis ?? [])
     .map((item) => {
-      const modeOption = isTodayMode ? item?.todayOption : item?.latestOption;
-      if (!modeOption?.isUsable && mode === PRICE_MODE.TODAY && item?.latestOption?.isUsable) {
-        return {
-          ...item,
-          mode: PRICE_MODE.RECENT,
-          modePrice: item.latestOption.price,
-          modeDate: item.latestOption.date,
-          modeFreshnessDays: item.latestOption.freshnessDays,
-        };
-      }
-      if (!modeOption?.isUsable) return null;
+      const modeRow = isTodayMode
+        ? item?.todayRow
+        : item?.recentRow || item?.latestAvailableRow;
+      const fallbackToLatest = !isTodayMode && !item?.recentRow && Boolean(item?.latestAvailableRow);
+      const modeFreshnessDays = modeRow ? getFreshnessDays(modeRow.parsedDate) : null;
       return {
         ...item,
         mode,
-        modePrice: modeOption.price,
-        modeDate: modeOption.date,
-        modeFreshnessDays: modeOption.freshnessDays,
+        modePrice: modeRow?.price ?? null,
+        modeDate: modeRow?.date ?? null,
+        modeFreshnessDays,
+        modeHasData: Boolean(modeRow),
+        modeFallbackToLatest: fallbackToLatest,
       };
     })
-    .filter(Boolean);
+    .sort((a, b) => a.mandi.localeCompare(b.mandi));
 }
 
 export function splitMandisByFreshness(mandis = []) {
