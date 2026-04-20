@@ -153,15 +153,18 @@ export default function Home() {
 
   const getMandiOptionLabel = (item) => {
     if (priceType === "today") {
-      const price = formatInr(item?.todayOption?.price);
+      if (!item?.modeHasData) {
+        return `${item.mandi} — ${t.naLabel} · Today unavailable`;
+      }
+      const price = formatInr(item?.modePrice);
       return `${item.mandi} — ${price} · ${t.today}`;
     }
 
-    const freshnessDays = item?.latestOption?.freshnessDays;
+    const freshnessDays = item?.modeFreshnessDays;
     const freshness = Number.isFinite(freshnessDays)
       ? (freshnessDays === 1 ? t.dayOld : t.daysOld).replace("{days}", freshnessDays)
       : t.latestAvailable;
-    const price = formatInr(item?.latestOption?.price);
+    const price = formatInr(item?.modePrice);
     return `${item.mandi} — ${price} · ${freshness}`;
   };
 
