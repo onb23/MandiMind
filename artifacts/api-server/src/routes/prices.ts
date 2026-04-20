@@ -201,6 +201,7 @@ function toDisplayCropName(commodity: string): string {
 interface PriceRecord {
   date: string;
   market: string;
+  state: string;
   commodity: string;
   price: number;
   min_price: number;
@@ -213,6 +214,7 @@ async function fetchDataGov(
   market: string,
   state: string,
   limit = 100,
+  offset = 0,
   arrivalDate?: string,
 ): Promise<PriceRecord[]> {
   const apiKey = process.env.DATA_GOV_API_KEY;
@@ -222,6 +224,7 @@ async function fetchDataGov(
     "api-key": apiKey,
     format: "json",
     limit: String(limit),
+    offset: String(offset),
   });
   if (commodity) params.set("filters[commodity]", commodity);
   if (market) params.set("filters[market]", market);
@@ -240,6 +243,7 @@ async function fetchDataGov(
     .map((r: any) => ({
       date:        r.arrival_date,
       market:      r.market,
+      state:       r.state ?? "",
       commodity:   r.commodity,
       price:       Number(r.modal_price),
       min_price:   Number(r.min_price),
@@ -253,6 +257,35 @@ async function fetchDataGov(
     });
 
   return records;
+}
+
+async function fetchDataGovPaginated(
+  commodity: string,
+  market: string,
+  state: string,
+  {
+    limit = 500,
+    enoughRows = 2000,
+    maxOffset = 5000,
+    arrivalDate,
+  }: {
+    limit?: number;
+    enoughRows?: number;
+    maxOffset?: number;
+    arrivalDate?: string;
+  } = {},
+): Promise<PriceRecord[]> {
+  const allRecords: PriceRecord[] = [];
+
+  for (let offset = 0; offset <= maxOffset; offset += limit) {
+    const page = await fetchDataGov(commodity, market, state, limit, offset, arrivalDate);
+    allRecords.push(...page);
+
+    if (page.length < limit) break;
+    if (allRecords.length >= enoughRows) break;
+  }
+
+  return allRecords;
 }
 
 // ── GET /api/prices ─────────────────────────────────────────────────────────
@@ -445,10 +478,31 @@ router.get("/compare", async (req: Request, res: Response) => {
   }
 
   try {
-    // Fetch all records for crop+state (no market filter) — up to 500
-    const records = await fetchDataGov(commodity, "", state, 500);
+    const records = await fetchDataGovPaginated("", "", "", {
+      limit: 500,
+      enoughRows: 2500,
+      maxOffset: 5000,
+    });
+    const cropFilteredRecords = records.filter(
+      (r) => (r.commodity || "").trim().toLowerCase() === commodity.trim().toLowerCase()
+    );
+    const stateFilteredRecords = cropFilteredRecords.filter(
+      (r) => (r.state || "").trim().toLowerCase() === state.trim().toLowerCase()
+    );
 
-    if (!records.length) {
+    logger.info(
+      {
+        route: "/api/compare",
+        crop: commodity,
+        state,
+        totalRowsFetched: records.length,
+        rowsAfterCropFilter: cropFilteredRecords.length,
+        rowsAfterStateFilter: stateFilteredRecords.length,
+      },
+      "Agmarknet pagination coverage stats"
+    );
+
+    if (!stateFilteredRecords.length) {
       return res.json({
         mandis: [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
         lastUpdated: null,
@@ -458,61 +512,8 @@ router.get("/compare", async (req: Request, res: Response) => {
     }
 
     const numDays = Number(days) || 7;
-    const latestModeWindowDays = 3;
-    const todayDayTs = startOfUtcDayTs();
-    const recentDateKeys = Array.from({ length: latestModeWindowDays + 1 }, (_, offset) => {
-      const date = new Date(todayDayTs - offset * DAY_MS);
-      const dd = String(date.getUTCDate()).padStart(2, "0");
-      const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
-      const yyyy = String(date.getUTCFullYear());
-      return `${dd}/${mm}/${yyyy}`;
-    });
-
-    const recentDateKeysIso = recentDateKeys.map((key) => {
-      const [dd, mm, yyyy] = key.split("/");
-      return `${yyyy}-${mm}-${dd}`;
-    });
-
-    const recentDateBatches = await Promise.all(
-      recentDateKeys.flatMap((dateKey, index) => [
-        fetchDataGov(commodity, "", state, 500, dateKey),
-        fetchDataGov(commodity, "", state, 500, recentDateKeysIso[index]),
-      ])
-    );
-    const mergedRecentRecords = recentDateBatches.flat();
-    const mergedRecentKeys = new Set(
-      mergedRecentRecords.map((r) => `${r.market}|${r.date}|${r.modal_price}`)
-    );
-    const recentWindowRecords = [
-      ...mergedRecentRecords,
-      ...records.filter((r) => {
-        const dayDiff = getDayDifference(r.date, todayDayTs);
-        return dayDiff !== null && dayDiff >= 0 && dayDiff <= latestModeWindowDays && !mergedRecentKeys.has(`${r.market}|${r.date}|${r.modal_price}`);
-      }),
-    ];
-
-    logger.info({
-      route: "/api/compare",
-      crop: commodity,
-      state,
-      rawArrivalDatesSample: records.slice(0, 20).map((r) => r.date),
-      parsedArrivalDatesSample: records.slice(0, 20).map((r) => {
-        const parsed = parseArrivalDate(r.date);
-        return {
-          raw: r.date,
-          parsedIsoDay: parsed?.isoDay ?? null,
-          dayDifference: getDayDifference(r.date, todayDayTs),
-        };
-      }),
-      recordCounts: {
-        totalRecords: records.length,
-        mergedRecentRecords: mergedRecentRecords.length,
-        recentWindowRecords: recentWindowRecords.length,
-      },
-    }, "Recent window debug stats");
-
-    const fallbackSelection = selectWithFallback(recentWindowRecords.length > 0 ? recentWindowRecords : records);
-    const candidateRecords = fallbackSelection.records.length > 0 ? fallbackSelection.records : records;
+    const fallbackSelection = selectWithFallback(stateFilteredRecords);
+    const candidateRecords = fallbackSelection.records.length > 0 ? fallbackSelection.records : stateFilteredRecords;
 
     // Group by market
     const byMandi = new Map<string, PriceRecord[]>();
