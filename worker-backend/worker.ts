@@ -91,6 +91,16 @@ interface RecommendationTraceStage {
   sample: Array<{ market: string; date: string; commodity: string }>;
 }
 
+interface CacheDebugFields {
+  kvAvailable: boolean;
+  cacheKey: string;
+  cacheReadAttempted: boolean;
+  cacheHit: boolean;
+  cacheWriteAttempted: boolean;
+  cacheWriteSucceeded: boolean;
+  source: string;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function parseArrivalDate(d: string): number {
@@ -315,12 +325,13 @@ async function writeRecentDataToKv(
   state: string,
   records: PriceRecord[],
   todayTs = startOfUtcDayTs(),
-) {
-  if (!env.RECENT_MANDI_KV) return;
+): Promise<{ attempted: boolean; succeeded: boolean }> {
+  if (!env.RECENT_MANDI_KV) return { attempted: false, succeeded: false };
   const recentSnapshots = dedupeRecentSnapshots(
     toRecentSnapshot(records, todayTs),
   );
-  if (recentSnapshots.length === 0) return;
+  if (recentSnapshots.length === 0)
+    return { attempted: false, succeeded: false };
   const byDate = new Map<string, RecentMandiSnapshot[]>();
   for (const entry of recentSnapshots) {
     const ts = parseArrivalDate(entry.date);
@@ -329,9 +340,12 @@ async function writeRecentDataToKv(
     if (!byDate.has(dateKey)) byDate.set(dateKey, []);
     byDate.get(dateKey)!.push(entry);
   }
+  let attempted = false;
+  let succeeded = false;
   for (const [dateKey, entries] of byDate.entries()) {
     try {
       const key = buildRecentKvKey(crop, state, dateKey);
+      attempted = true;
       await env.RECENT_MANDI_KV.put(
         key,
         JSON.stringify({
@@ -341,10 +355,12 @@ async function writeRecentDataToKv(
         }),
         { expirationTtl: 259200 },
       );
+      succeeded = true;
     } catch {
       // KV-safe no-op
     }
   }
+  return { attempted, succeeded };
 }
 
 async function readRecentDataFromKv(
@@ -561,7 +577,11 @@ function json(body: unknown, status = 200): Response {
 function buildCompareResponseFromRows(
   rows: PriceRecord[],
   days: number,
-  metadata: { freshnessDays: number | null; source: "live" | "fallback" },
+  metadata: {
+    freshnessDays: number | null;
+    source: "live" | "fallback" | "kv";
+    debug?: CacheDebugFields;
+  },
   cacheKey: string,
 ): Response {
   const usableRows = rows.filter((r) => Boolean(r.market && r.date));
@@ -623,6 +643,12 @@ function buildCompareResponseFromRows(
     lastUpdated: latestDate,
     freshnessDays: metadata.freshnessDays,
     source: metadata.source,
+    kvAvailable: metadata.debug?.kvAvailable ?? false,
+    cacheKey: metadata.debug?.cacheKey ?? cacheKey,
+    cacheReadAttempted: metadata.debug?.cacheReadAttempted ?? false,
+    cacheHit: metadata.debug?.cacheHit ?? false,
+    cacheWriteAttempted: metadata.debug?.cacheWriteAttempted ?? false,
+    cacheWriteSucceeded: metadata.debug?.cacheWriteSucceeded ?? false,
   };
   cache.set(cacheKey, { data, ts: Date.now() });
   return json(data);
@@ -635,6 +661,7 @@ function buildCompareRecentWindowResponse(
   windowDays: number,
   includeTodayOnly: boolean,
   cacheKey: string,
+  debug?: CacheDebugFields,
 ): Response {
   const deduped = dedupePriceRowsByMandiDate(rows).filter((r) => {
     const freshnessDays = getFreshnessDays(r.date, todayTs);
@@ -703,6 +730,12 @@ function buildCompareRecentWindowResponse(
     totalMandiCount: mandis.length,
     freshnessDays: mandis[0]?.freshnessDays ?? null,
     lastUpdated: availableDates[0] ?? null,
+    kvAvailable: debug?.kvAvailable ?? false,
+    cacheKey: debug?.cacheKey ?? cacheKey,
+    cacheReadAttempted: debug?.cacheReadAttempted ?? false,
+    cacheHit: debug?.cacheHit ?? false,
+    cacheWriteAttempted: debug?.cacheWriteAttempted ?? false,
+    cacheWriteSucceeded: debug?.cacheWriteSucceeded ?? false,
     status:
       mandis.length === 0
         ? includeTodayOnly
@@ -828,10 +861,25 @@ async function handlePrices(
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
   const cacheKey = `prices:${commodity}:${market}:${state}:${days}`;
+  const debugBase = {
+    kvAvailable: Boolean(env.RECENT_MANDI_KV),
+    cacheKey,
+    cacheReadAttempted: false,
+    cacheHit: false,
+    cacheWriteAttempted: false,
+    cacheWriteSucceeded: false,
+  };
   const cached = cache.get(cacheKey);
 
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return json({ ...(cached.data as object), fromCache: true, stale: false });
+    return json({
+      ...(cached.data as object),
+      fromCache: true,
+      stale: false,
+      ...debugBase,
+      cacheHit: true,
+      source: "memory-cache",
+    });
   }
 
   try {
@@ -916,6 +964,7 @@ async function handlePrices(
         matchedMarketCount: 0,
         recordCount: 0,
         usableCount: 0,
+        ...debugBase,
       };
       cache.set(cacheKey, { data: emptyResponse, ts: Date.now() });
       return json(emptyResponse);
@@ -946,6 +995,7 @@ async function handlePrices(
       matchedMarketCount: selectedMarketRecords.length,
       recordCount: selectedMarketRecords.length,
       usableCount: trimmed.length,
+      ...debugBase,
     };
     cache.set(cacheKey, { data, ts: Date.now() });
     return json(data);
@@ -961,6 +1011,7 @@ async function handlePrices(
         lastUpdated: null,
         freshnessDays: null,
         source: "fallback",
+        ...debugBase,
       },
       502,
     );
@@ -1071,10 +1122,24 @@ async function handleCompare(
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
   const cacheKey = `compare:${commodity}:${state}:${days}`;
+  const compareDebug: CacheDebugFields = {
+    kvAvailable: Boolean(env.RECENT_MANDI_KV),
+    cacheKey,
+    cacheReadAttempted: false,
+    cacheHit: false,
+    cacheWriteAttempted: false,
+    cacheWriteSucceeded: false,
+    source: "live-no-kv",
+  };
   const cached = cache.get(cacheKey);
 
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return json({ ...(cached.data as object), fromCache: true });
+    return json({
+      ...(cached.data as object),
+      fromCache: true,
+      cacheHit: true,
+      source: "memory-cache",
+    });
   }
 
   try {
@@ -1083,11 +1148,27 @@ async function handleCompare(
       const includeTodayOnly = days <= 1;
       const windowDays = includeTodayOnly ? 1 : 3;
       const dateWindow = getRecentDateWindow(todayTs, windowDays);
-
       const liveRows: PriceRecord[] = [];
-      const kvRows: PriceRecord[] = [];
-      let usedLive = false;
-      let usedKv = false;
+      compareDebug.cacheReadAttempted = Boolean(env.RECENT_MANDI_KV);
+      const kvRows = await readRecentDataFromKv(env, crop, state, todayTs);
+      const freshKvRows = dedupePriceRowsByMandiDate(kvRows).filter((row) => {
+        const freshness = getFreshnessDays(row.date, todayTs);
+        if (freshness === null || freshness < 0) return false;
+        return includeTodayOnly ? freshness === 0 : freshness <= windowDays;
+      });
+      if (freshKvRows.length > 0) {
+        compareDebug.cacheHit = true;
+        compareDebug.source = "kv";
+        return buildCompareRecentWindowResponse(
+          freshKvRows,
+          todayTs,
+          "kv",
+          windowDays,
+          includeTodayOnly,
+          cacheKey,
+          compareDebug,
+        );
+      }
 
       for (const day of dateWindow) {
         let dayLiveRows: PriceRecord[] = [];
@@ -1102,62 +1183,29 @@ async function handleCompare(
           dayLiveRows = [];
         }
         if (dayLiveRows.length > 0) {
-          usedLive = true;
           liveRows.push(...dayLiveRows);
-          await writeRecentDataToKv(env, crop, state, dayLiveRows, todayTs);
-          continue;
-        }
-        if (env.RECENT_MANDI_KV) {
-          try {
-            const key = buildRecentKvKey(crop, state, day.dateKey);
-            const raw = await env.RECENT_MANDI_KV.get(key);
-            if (raw) {
-              const parsed = JSON.parse(raw) as {
-                entries?: RecentMandiSnapshot[];
-              };
-              const entries = dedupeRecentSnapshots(
-                Array.isArray(parsed?.entries) ? parsed.entries : [],
-              );
-              for (const entry of entries) {
-                kvRows.push({
-                  date: entry.date,
-                  market: entry.mandi,
-                  district: "",
-                  state,
-                  commodity,
-                  variety: entry.variety,
-                  price: entry.modal_price,
-                  min_price: entry.min_price,
-                  max_price: entry.max_price,
-                  modal_price: entry.modal_price,
-                });
-              }
-              if (entries.length > 0) usedKv = true;
-            }
-          } catch {
-            // KV-safe no-op
-          }
         }
       }
-
-      const combined = dedupePriceRowsByMandiDate([...liveRows, ...kvRows]);
+      const writeResult = await writeRecentDataToKv(
+        env,
+        crop,
+        state,
+        liveRows,
+        todayTs,
+      );
+      compareDebug.cacheWriteAttempted = writeResult.attempted;
+      compareDebug.cacheWriteSucceeded = writeResult.succeeded;
+      compareDebug.source = env.RECENT_MANDI_KV ? "live+kv" : "live-no-kv";
       const source: "live" | "kv" | "live+kv" | "live-no-kv" =
-        !env.RECENT_MANDI_KV
-          ? usedLive
-            ? "live-no-kv"
-            : "live-no-kv"
-          : usedLive && usedKv
-            ? "live+kv"
-            : usedLive
-              ? "live"
-              : "kv";
+        env.RECENT_MANDI_KV ? "live+kv" : "live-no-kv";
       return buildCompareRecentWindowResponse(
-        combined,
+        dedupePriceRowsByMandiDate(liveRows),
         todayTs,
         source,
         windowDays,
         includeTodayOnly,
         cacheKey,
+        compareDebug,
       );
     }
 
@@ -1203,14 +1251,18 @@ async function handleCompare(
     );
 
     if (!cropFilteredRecords.length) {
+      compareDebug.cacheReadAttempted = Boolean(env.RECENT_MANDI_KV);
       const kvRows = await readRecentDataFromKv(env, crop, state, todayTs);
       if (kvRows.length > 0) {
+        compareDebug.cacheHit = true;
+        compareDebug.source = "kv";
         return buildCompareResponseFromRows(
           kvRows,
           days,
           {
             freshnessDays: getFreshnessDays(kvRows[0]?.date ?? "", todayTs),
-            source: "fallback",
+            source: "kv",
+            debug: compareDebug,
           },
           cacheKey,
         );
@@ -1228,6 +1280,7 @@ async function handleCompare(
         lastUpdated: null,
         freshnessDays: null,
         source: "fallback",
+        ...compareDebug,
       });
     }
 
@@ -1239,7 +1292,7 @@ async function handleCompare(
     );
     let finalCandidateRows =
       usableRows.length > 0 ? usableRows : candidateRecords;
-    let source = selected.metadata.source;
+    let source: "live" | "fallback" | "kv" = selected.metadata.source;
     let freshnessDays = selected.metadata.freshnessDays;
 
     const hasRecentApiRows = finalCandidateRows.some((r) => {
@@ -1248,24 +1301,43 @@ async function handleCompare(
     });
 
     if (!hasRecentApiRows) {
+      compareDebug.cacheReadAttempted = Boolean(env.RECENT_MANDI_KV);
       const kvRows = await readRecentDataFromKv(env, crop, state, todayTs);
       if (kvRows.length > 0) {
         finalCandidateRows = kvRows;
-        source = "fallback";
+        source = "kv";
         freshnessDays = getFreshnessDays(kvRows[0]?.date ?? "", todayTs);
+        compareDebug.cacheHit = true;
+        compareDebug.source = "kv";
       } else {
         finalCandidateRows = [];
         source = "fallback";
         freshnessDays = null;
+        compareDebug.source = "fallback";
       }
     } else {
-      await writeRecentDataToKv(env, crop, state, finalRows, todayTs);
+      const writeResult = await writeRecentDataToKv(
+        env,
+        crop,
+        state,
+        finalRows,
+        todayTs,
+      );
+      compareDebug.cacheWriteAttempted = writeResult.attempted;
+      compareDebug.cacheWriteSucceeded = writeResult.succeeded;
     }
 
     return buildCompareResponseFromRows(
       finalCandidateRows,
       days,
-      { freshnessDays, source },
+      {
+        freshnessDays,
+        source,
+        debug: {
+          ...compareDebug,
+          source,
+        },
+      },
       cacheKey,
     );
   } catch {
@@ -1285,6 +1357,7 @@ async function handleCompare(
         ],
         freshnessDays: null,
         source: "fallback",
+        ...compareDebug,
       },
       502,
     );
