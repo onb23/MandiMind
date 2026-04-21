@@ -10,8 +10,15 @@
  *   wrangler deploy
  */
 
+interface KVNamespace {
+  get(key: string, type: "json"): Promise<unknown | null>;
+  get(key: string, type?: "text"): Promise<string | null>;
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+}
+
 export interface Env {
   DATA_GOV_API_KEY: string;
+  MANDIMIND_CACHE: KVNamespace;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -19,6 +26,8 @@ export interface Env {
 const RESOURCE_ID = "9ef84268-d588-465a-a308-a864a43d0070";
 const DATA_GOV_BASE = "https://api.data.gov.in/resource";
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
+const KV_CACHE_TTL_SECONDS = 6 * 60 * 60; // 6 hours
+const trendCache = new Map<string, { data: unknown; ts: number }>();
 
 const CROP_MAP: Record<string, string> = {
   onion:   "Onion",
@@ -32,9 +41,6 @@ gram: "Gram",
 maize: "Maize",
 };
 
-// In-memory cache (lives for the lifetime of the Worker isolate)
-const cache = new Map<string, { data: unknown; ts: number }>();
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PriceRecord {
@@ -46,6 +52,11 @@ interface PriceRecord {
   min_price:   number;
   max_price:   number;
   modal_price: number;
+}
+
+interface WorkerCacheEnvelope<T> {
+  ts: number;
+  data: T;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -70,6 +81,55 @@ function normalizeCommodity(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeCacheSegment(value: string): string {
+  const normalized = normalizeCommodity(value);
+  return normalized || "all";
+}
+
+function buildCacheKey(
+  prefix: "prices" | "compare",
+  crop: string,
+  state: string,
+  market?: string,
+  extra?: string,
+): string {
+  const parts = [
+    "mandimind",
+    "v1",
+    prefix,
+    normalizeCacheSegment(crop),
+    normalizeCacheSegment(state),
+  ];
+
+  if (market !== undefined) parts.push(normalizeCacheSegment(market));
+  if (extra) parts.push(extra);
+
+  return parts.join(":");
+}
+
+function getFreshnessDays(dateStr: string | null): number | null {
+  if (!dateStr) return null;
+  const ts = parseArrivalDate(dateStr);
+  if (!ts) return null;
+  return Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000));
+}
+
+async function kvGet<T>(env: Env, key: string): Promise<WorkerCacheEnvelope<T> | null> {
+  const raw = await env.MANDIMIND_CACHE.get(key, "json");
+  if (!raw || typeof raw !== "object") return null;
+  const parsed = raw as Partial<WorkerCacheEnvelope<T>>;
+  if (!parsed.ts || !("data" in parsed)) return null;
+  return parsed as WorkerCacheEnvelope<T>;
+}
+
+async function kvPut<T>(env: Env, key: string, data: T, expirationTtl = KV_CACHE_TTL_SECONDS): Promise<void> {
+  const payload: WorkerCacheEnvelope<T> = {
+    ts: Date.now(),
+    data,
+  };
+  await env.MANDIMIND_CACHE.put(key, JSON.stringify(payload), { expirationTtl });
 }
 
 function commodityMatches(selectedCrop: string, datasetCommodity: string): boolean {
@@ -149,11 +209,11 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
-  const cacheKey  = `prices:${commodity}:${market}:${state}:${days}`;
-  const cached    = cache.get(cacheKey);
+  const cacheKey  = buildCacheKey("prices", commodity, state, market, `days:${days}`);
+  const cached    = await kvGet<any>(env, cacheKey);
 
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return json({ ...(cached.data as object), fromCache: true, stale: false });
+    return json({ ...(cached.data as object), cacheHit: true, source: "kv-fresh", stale: false });
   }
 
   try {
@@ -205,14 +265,29 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
     },
     lastUpdated: latest?.date ?? null,
     stale: latest ? isDataStale(latest.date) : true,
+    freshnessDays: getFreshnessDays(latest?.date ?? null),
+    recordCount: cropMatchedRecords.length,
+    usableCount: trimmed.length,
+    cacheHit: false,
     source: "live",
   };
 
-  cache.set(cacheKey, { data, ts: Date.now() });
+  await kvPut(env, cacheKey, data);
   return json(data);
 } catch {
-  if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
-  return json({ error: "data.gov.in unavailable", data: [], source: "error" }, 502);
+  if (cached) {
+    const cachedData = cached.data as any;
+    return json({
+      ...cachedData,
+      source: "kv-stale-fallback",
+      cacheHit: true,
+      stale: true,
+      freshnessDays: getFreshnessDays(cachedData?.lastUpdated ?? null),
+      recordCount: cachedData?.recordCount ?? 0,
+      usableCount: cachedData?.usableCount ?? 0,
+    });
+  }
+  return json({ error: "data.gov.in unavailable", data: [], source: "error", cacheHit: false }, 502);
 }
 }
 
@@ -227,7 +302,7 @@ async function handleTrend(params: URLSearchParams, env: Env): Promise<Response>
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
   const cacheKey  = `trend:${commodity}:${market}:${state}`;
-  const cached    = cache.get(cacheKey);
+  const cached    = trendCache.get(cacheKey);
 
   let records: PriceRecord[] = cached ? (cached.data as any).data ?? [] : [];
 
@@ -236,7 +311,7 @@ async function handleTrend(params: URLSearchParams, env: Env): Promise<Response>
       records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, market, state, 30);
       const pricesArr = records.map(r => r.modal_price);
       const latest    = records[records.length - 1] ?? null;
-      cache.set(cacheKey, {
+      trendCache.set(cacheKey, {
         ts: Date.now(),
         data: {
           data: records,
@@ -302,11 +377,17 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
-  const cacheKey  = `compare:${commodity}:${state}:${mode}:${days}`;
-  const cached    = cache.get(cacheKey);
+  const cacheKey  = buildCacheKey("compare", commodity, state, "", `mode:${mode}:days:${days}`);
+  const cached    = await kvGet<any>(env, cacheKey);
 
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return json({ ...(cached.data as object), fromCache: true });
+    const cachedData = cached.data as any;
+    return json({
+      ...cachedData,
+      source: "kv-fresh",
+      cacheHit: true,
+      freshnessDays: getFreshnessDays(cachedData?.lastUpdated ?? null),
+    });
   }
 
   try {
@@ -418,19 +499,33 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       mandis,
       todayCount: todayRows.length,
       recentCount: recentRows.length,
+      recordCount: candidateRecords.length,
+      usableCount: mandis.length,
+      freshnessDays: getFreshnessDays(latestDate),
+      cacheHit: false,
       source: "live",
     };
 
-    cache.set(cacheKey, { data, ts: Date.now() });
+    await kvPut(env, cacheKey, data);
     return json(data);
 
   } catch (error) {
-    if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
+    if (cached) {
+      const cachedData = cached.data as any;
+      return json({
+        ...cachedData,
+        source: "kv-stale-fallback",
+        cacheHit: true,
+        stale: true,
+        freshnessDays: getFreshnessDays(cachedData?.lastUpdated ?? null),
+      });
+    }
     return json({
       error: "data.gov.in unavailable",
       mandis: [],
       status: "upstream_error",
-      source: "error"
+      source: "error",
+      cacheHit: false,
     }, 502);
   }
 }
