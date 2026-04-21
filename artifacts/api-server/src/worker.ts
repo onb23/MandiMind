@@ -26,7 +26,7 @@ export interface Env {
 const RESOURCE_ID = "9ef84268-d588-465a-a308-a864a43d0070";
 const DATA_GOV_BASE = "https://api.data.gov.in/resource";
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
-const KV_CACHE_TTL_SECONDS = 6 * 60 * 60; // 6 hours
+const KV_CACHE_TTL_SECONDS = 3 * 24 * 60 * 60; // 3 days
 const trendCache = new Map<string, { data: unknown; ts: number }>();
 
 const CROP_MAP: Record<string, string> = {
@@ -486,10 +486,10 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
     const todayKey = formatDate(today);
 
     const recentDateKeys = Array.from({ length: 3 }, (_, i) => {
-      const d = new Date(today);
-      d.setDate(today.getDate() - (i + 1)); // 1,2,3 days ago only
-      return formatDate(d);
-    });
+  const d = new Date(today);
+  d.setDate(today.getDate() - i); // today, 1 day ago, 2 days ago
+  return formatDate(d);
+});
 
     const todayRows = await fetchDataGov(
       env.DATA_GOV_API_KEY,
