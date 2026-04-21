@@ -23,15 +23,15 @@ const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const CROP_MAP: Record<string, string> = {
-  onion:   "Onion",
-  tomato:  "Tomato",
-  wheat:   "Wheat",
+  onion: "Onion",
+  tomato: "Tomato",
+  wheat: "Wheat",
   soybean: "Soybean",
-  cotton:  "Cotton(Unginned)",
-  banana:  "Banana",
-  rice:    "Rice",
-  potato:  "Potato",
-  mango:   "Mango",
+  cotton: "Cotton(Unginned)",
+  banana: "Banana",
+  rice: "Rice",
+  potato: "Potato",
+  mango: "Mango",
 };
 
 const COMMODITY_DISPLAY_MAP: Record<string, string> = {
@@ -55,15 +55,15 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PriceRecord {
-  date:        string;
-  market:      string;
-  district:    string;
-  state:       string;
-  commodity:   string;
-  variety?:    string;
-  price:       number;
-  min_price:   number;
-  max_price:   number;
+  date: string;
+  market: string;
+  district: string;
+  state: string;
+  commodity: string;
+  variety?: string;
+  price: number;
+  min_price: number;
+  max_price: number;
   modal_price: number;
 }
 
@@ -75,6 +75,15 @@ interface RecentMandiSnapshot {
   max_price: number;
   variety?: string;
   timestamp: number;
+}
+
+interface CompareMandiDateEntry {
+  date: string;
+  freshnessDays: number | null;
+  price: number;
+  minPrice: number;
+  maxPrice: number;
+  variety?: string;
 }
 
 interface RecommendationTraceStage {
@@ -114,14 +123,21 @@ function parseArrivalDate(d: string): number {
   const ts = Date.parse(trimmed);
   if (!Number.isFinite(ts)) return 0;
   const parsed = new Date(ts);
-  return Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
+  return Date.UTC(
+    parsed.getUTCFullYear(),
+    parsed.getUTCMonth(),
+    parsed.getUTCDate(),
+  );
 }
 
 function startOfUtcDayTs(date = new Date()): number {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 }
 
-function getFreshnessDays(dateStr: string, todayTs = startOfUtcDayTs()): number | null {
+function getFreshnessDays(
+  dateStr: string,
+  todayTs = startOfUtcDayTs(),
+): number | null {
   const ts = parseArrivalDate(dateStr);
   if (!ts) return null;
   const diffMs = todayTs - ts;
@@ -129,7 +145,10 @@ function getFreshnessDays(dateStr: string, todayTs = startOfUtcDayTs()): number 
   return Math.floor(diffMs / DAY_MS);
 }
 
-function selectWithFallback(records: PriceRecord[], todayTs = startOfUtcDayTs()) {
+function selectWithFallback(
+  records: PriceRecord[],
+  todayTs = startOfUtcDayTs(),
+) {
   const windows = [3, 5, 7];
   for (const windowDays of windows) {
     const filtered = records.filter((r) => {
@@ -137,20 +156,32 @@ function selectWithFallback(records: PriceRecord[], todayTs = startOfUtcDayTs())
       return freshness !== null && freshness <= windowDays;
     });
     if (filtered.length > 0) {
-      const freshnessDays = getFreshnessDays(
-        filtered[filtered.length - 1]?.date ?? filtered[0]?.date ?? "",
-        todayTs,
-      ) ?? null;
+      const freshnessDays =
+        getFreshnessDays(
+          filtered[filtered.length - 1]?.date ?? filtered[0]?.date ?? "",
+          todayTs,
+        ) ?? null;
       return {
         records: filtered,
-        metadata: { freshnessDays, source: windowDays === 3 ? "live" as const : "fallback" as const },
+        metadata: {
+          freshnessDays,
+          source: windowDays === 3 ? ("live" as const) : ("fallback" as const),
+        },
       };
     }
   }
 
-  const latestTs = records.reduce((max, row) => Math.max(max, parseArrivalDate(row.date)), 0);
-  const latestRecords = records.filter((row) => parseArrivalDate(row.date) === latestTs);
-  const freshest = latestRecords[latestRecords.length - 1] ?? records[records.length - 1] ?? null;
+  const latestTs = records.reduce(
+    (max, row) => Math.max(max, parseArrivalDate(row.date)),
+    0,
+  );
+  const latestRecords = records.filter(
+    (row) => parseArrivalDate(row.date) === latestTs,
+  );
+  const freshest =
+    latestRecords[latestRecords.length - 1] ??
+    records[records.length - 1] ??
+    null;
   return {
     records: latestRecords.length > 0 ? latestRecords : records.slice(-1),
     metadata: {
@@ -189,30 +220,59 @@ function getActiveCropFallback() {
 }
 
 function normalizeMarketName(market: string): string {
-  return (market ?? "")
-    .toString()
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
+  return (market ?? "").toString().trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function buildRecentKvKey(crop: string, state: string): string {
-  return `recent:${(crop ?? "").trim().toLowerCase()}:${(state ?? "").trim().toLowerCase()}`;
+function buildRecentKvKey(
+  crop: string,
+  state: string,
+  dateKey: string,
+): string {
+  return `mandimind:v1:compare:${(state ?? "").trim().toLowerCase()}:${(crop ?? "").trim().toLowerCase()}:${dateKey}`;
 }
 
-function toRecentSnapshot(records: PriceRecord[], todayTs = startOfUtcDayTs()): RecentMandiSnapshot[] {
+function toUtcDateKeyFromTs(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+function getRecentDateWindow(
+  todayTs = startOfUtcDayTs(),
+  windowDays = 3,
+): Array<{ dateKey: string; displayDate: string }> {
+  const out: Array<{ dateKey: string; displayDate: string }> = [];
+  for (let offset = 0; offset < windowDays; offset += 1) {
+    const ts = todayTs - offset * DAY_MS;
+    const d = new Date(ts);
+    out.push({
+      dateKey: toUtcDateKeyFromTs(ts),
+      displayDate: formatDateDdMmYyyy(d),
+    });
+  }
+  return out;
+}
+
+function toRecentSnapshot(
+  records: PriceRecord[],
+  todayTs = startOfUtcDayTs(),
+): RecentMandiSnapshot[] {
   const dedupe = new Map<string, RecentMandiSnapshot>();
   for (const row of records) {
     const freshnessDays = getFreshnessDays(row.date, todayTs);
-    if (freshnessDays === null || freshnessDays < 0 || freshnessDays > 3) continue;
+    if (freshnessDays === null || freshnessDays < 0 || freshnessDays > 3)
+      continue;
     if (!row.market || !row.date || !Number.isFinite(row.modal_price)) continue;
     const key = `${normalizeMarketName(row.market)}|${row.date}`;
     const snapshot: RecentMandiSnapshot = {
       mandi: row.market,
       date: row.date,
       modal_price: row.modal_price,
-      min_price: Number.isFinite(row.min_price) ? row.min_price : row.modal_price,
-      max_price: Number.isFinite(row.max_price) ? row.max_price : row.modal_price,
+      min_price: Number.isFinite(row.min_price)
+        ? row.min_price
+        : row.modal_price,
+      max_price: Number.isFinite(row.max_price)
+        ? row.max_price
+        : row.modal_price,
       variety: row.variety,
       timestamp: Date.now(),
     };
@@ -228,7 +288,9 @@ function toRecentSnapshot(records: PriceRecord[], todayTs = startOfUtcDayTs()): 
   });
 }
 
-function dedupeRecentSnapshots(entries: RecentMandiSnapshot[]): RecentMandiSnapshot[] {
+function dedupeRecentSnapshots(
+  entries: RecentMandiSnapshot[],
+): RecentMandiSnapshot[] {
   const byMandiDate = new Map<string, RecentMandiSnapshot>();
   for (const entry of entries) {
     if (!entry?.mandi || !entry?.date) continue;
@@ -247,79 +309,122 @@ function dedupeRecentSnapshots(entries: RecentMandiSnapshot[]): RecentMandiSnaps
   return [...byMandiDate.values()];
 }
 
-function shouldOverwriteSnapshot(existingEntries: RecentMandiSnapshot[], nextEntries: RecentMandiSnapshot[]): boolean {
-  if (nextEntries.length === 0) return false;
-  if (existingEntries.length === 0) return true;
-
-  const existingLatestTs = existingEntries.reduce((max, row) => Math.max(max, parseArrivalDate(row.date)), 0);
-  const nextLatestTs = nextEntries.reduce((max, row) => Math.max(max, parseArrivalDate(row.date)), 0);
-  const existingCount = existingEntries.length;
-  const nextCount = nextEntries.length;
-
-  // Guardrail: never replace strong KV data with very small partial snapshots.
-  if (nextCount * 2 < existingCount) return false;
-
-  // Overwrite only when row count is at least as good OR the snapshot is strictly newer.
-  return nextCount >= existingCount || nextLatestTs > existingLatestTs;
-}
-
-async function writeRecentDataToKv(env: Env, crop: string, state: string, records: PriceRecord[], todayTs = startOfUtcDayTs()) {
+async function writeRecentDataToKv(
+  env: Env,
+  crop: string,
+  state: string,
+  records: PriceRecord[],
+  todayTs = startOfUtcDayTs(),
+) {
   if (!env.RECENT_MANDI_KV) return;
-  const key = buildRecentKvKey(crop, state);
-  const snapshot = dedupeRecentSnapshots(toRecentSnapshot(records, todayTs));
-  if (snapshot.length === 0) return;
-
-  const existingRaw = await env.RECENT_MANDI_KV.get(key);
-  let existingEntries: RecentMandiSnapshot[] = [];
-  if (existingRaw) {
+  const recentSnapshots = dedupeRecentSnapshots(
+    toRecentSnapshot(records, todayTs),
+  );
+  if (recentSnapshots.length === 0) return;
+  const byDate = new Map<string, RecentMandiSnapshot[]>();
+  for (const entry of recentSnapshots) {
+    const ts = parseArrivalDate(entry.date);
+    if (!ts) continue;
+    const dateKey = toUtcDateKeyFromTs(ts);
+    if (!byDate.has(dateKey)) byDate.set(dateKey, []);
+    byDate.get(dateKey)!.push(entry);
+  }
+  for (const [dateKey, entries] of byDate.entries()) {
     try {
-      const existingParsed = JSON.parse(existingRaw) as { entries?: RecentMandiSnapshot[] };
-      existingEntries = dedupeRecentSnapshots(Array.isArray(existingParsed?.entries) ? existingParsed.entries : []);
+      const key = buildRecentKvKey(crop, state, dateKey);
+      await env.RECENT_MANDI_KV.put(
+        key,
+        JSON.stringify({
+          updatedAt: new Date().toISOString(),
+          dateKey,
+          entries: dedupeRecentSnapshots(entries),
+        }),
+        { expirationTtl: 259200 },
+      );
     } catch {
-      existingEntries = [];
+      // KV-safe no-op
     }
   }
+}
 
-  if (!shouldOverwriteSnapshot(existingEntries, snapshot)) return;
-
-  await env.RECENT_MANDI_KV.put(
-    key,
-    JSON.stringify({
-      updatedAt: new Date().toISOString(),
-      entries: snapshot,
-    }),
+async function readRecentDataFromKv(
+  env: Env,
+  crop: string,
+  state: string,
+  todayTs = startOfUtcDayTs(),
+): Promise<PriceRecord[]> {
+  if (!env.RECENT_MANDI_KV) return [];
+  const window = getRecentDateWindow(todayTs, 3);
+  const allRows: PriceRecord[] = [];
+  for (const item of window) {
+    try {
+      const key = buildRecentKvKey(crop, state, item.dateKey);
+      const raw = await env.RECENT_MANDI_KV.get(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as { entries?: RecentMandiSnapshot[] };
+      const entries = dedupeRecentSnapshots(
+        Array.isArray(parsed?.entries) ? parsed.entries : [],
+      );
+      for (const entry of entries) {
+        const freshnessDays = getFreshnessDays(entry.date, todayTs);
+        if (freshnessDays === null || freshnessDays < 0 || freshnessDays > 3)
+          continue;
+        allRows.push({
+          date: entry.date,
+          market: entry.mandi,
+          district: "",
+          state,
+          commodity: crop,
+          variety: entry.variety,
+          price: entry.modal_price,
+          min_price: entry.min_price,
+          max_price: entry.max_price,
+          modal_price: entry.modal_price,
+        });
+      }
+    } catch {
+      // KV-safe no-op
+    }
+  }
+  return allRows.sort(
+    (a, b) =>
+      parseArrivalDate(b.date) - parseArrivalDate(a.date) ||
+      b.modal_price - a.modal_price,
   );
 }
 
-async function readRecentDataFromKv(env: Env, crop: string, state: string, todayTs = startOfUtcDayTs()): Promise<PriceRecord[]> {
-  if (!env.RECENT_MANDI_KV) return [];
-  const key = buildRecentKvKey(crop, state);
-  const raw = await env.RECENT_MANDI_KV.get(key);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as { entries?: RecentMandiSnapshot[] };
-    const entries = dedupeRecentSnapshots(Array.isArray(parsed?.entries) ? parsed.entries : []);
-    return entries
-      .filter((entry) => {
-        const freshnessDays = getFreshnessDays(entry.date, todayTs);
-        return freshnessDays !== null && freshnessDays >= 0 && freshnessDays <= 3;
-      })
-      .map((entry) => ({
-        date: entry.date,
-        market: entry.mandi,
-        district: "",
-        state,
-        commodity: crop,
-        variety: entry.variety,
-        price: entry.modal_price,
-        min_price: entry.min_price,
-        max_price: entry.max_price,
-        modal_price: entry.modal_price,
-      }))
-      .sort((a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date) || b.modal_price - a.modal_price);
-  } catch {
-    return [];
+function dedupePriceRowsByMandiDate(records: PriceRecord[]): PriceRecord[] {
+  const map = new Map<string, PriceRecord>();
+  for (const row of records) {
+    if (!row?.market || !row?.date) continue;
+    const key = `${normalizeMarketName(row.market)}|${row.date}`;
+    const prev = map.get(key);
+    if (!prev || (row.modal_price ?? 0) >= (prev.modal_price ?? 0)) {
+      map.set(key, row);
+    }
   }
+  return [...map.values()];
+}
+
+async function fetchDataGovByDate(
+  env: Env,
+  commodity: string,
+  state: string,
+  arrivalDate: string,
+): Promise<PriceRecord[]> {
+  const rows = await fetchDataGovPaginated(
+    env.DATA_GOV_API_KEY,
+    commodity,
+    "",
+    state,
+    {
+      limit: 500,
+      enoughRows: 3000,
+      maxOffset: 6000,
+      arrivalDate,
+    },
+  );
+  return rows.filter((r) => commodityMatches(commodity, r.commodity));
 }
 
 function sampleRecords(records: PriceRecord[], sampleSize = 5) {
@@ -353,7 +458,9 @@ function normalizeMarketAlias(value: string): string {
 function pickBestMarketMatch(records: PriceRecord[], requestedMarket: string) {
   const requestedNormalized = normalizeText(requestedMarket);
   const requestedAlias = normalizeMarketAlias(requestedMarket);
-  const uniqueMarkets = [...new Set(records.map((r) => r.market).filter(Boolean))];
+  const uniqueMarkets = [
+    ...new Set(records.map((r) => r.market).filter(Boolean)),
+  ];
 
   const withMeta = uniqueMarkets.map((market) => {
     const normalized = normalizeText(market);
@@ -367,12 +474,19 @@ function pickBestMarketMatch(records: PriceRecord[], requestedMarket: string) {
   const exact = withMeta
     .filter((entry) => entry.normalized === requestedNormalized)
     .sort(byDeterministicOrder)[0];
-  if (exact) return { matchedMarket: exact.market, matchType: "normalized-equality" as const };
+  if (exact)
+    return {
+      matchedMarket: exact.market,
+      matchType: "normalized-equality" as const,
+    };
 
   const contains = withMeta
     .filter((entry) => {
       if (!requestedNormalized || !entry.normalized) return false;
-      return entry.normalized.includes(requestedNormalized) || requestedNormalized.includes(entry.normalized);
+      return (
+        entry.normalized.includes(requestedNormalized) ||
+        requestedNormalized.includes(entry.normalized)
+      );
     })
     .sort((a, b) => {
       const aDelta = Math.abs(a.normalized.length - requestedNormalized.length);
@@ -380,7 +494,11 @@ function pickBestMarketMatch(records: PriceRecord[], requestedMarket: string) {
       if (aDelta !== bDelta) return aDelta - bDelta;
       return byDeterministicOrder(a, b);
     })[0];
-  if (contains) return { matchedMarket: contains.market, matchType: "contains-match" as const };
+  if (contains)
+    return {
+      matchedMarket: contains.market,
+      matchType: "contains-match" as const,
+    };
 
   const aliasMatch = withMeta
     .filter((entry) => {
@@ -397,20 +515,35 @@ function pickBestMarketMatch(records: PriceRecord[], requestedMarket: string) {
       if (aDelta !== bDelta) return aDelta - bDelta;
       return byDeterministicOrder(a, b);
     })[0];
-  if (aliasMatch) return { matchedMarket: aliasMatch.market, matchType: "alias-apmc-match" as const };
+  if (aliasMatch)
+    return {
+      matchedMarket: aliasMatch.market,
+      matchType: "alias-apmc-match" as const,
+    };
 
   return { matchedMarket: null, matchType: "none" as const };
 }
 
-function commodityMatches(selectedCrop: string, datasetCommodity: string): boolean {
+function commodityMatches(
+  selectedCrop: string,
+  datasetCommodity: string,
+): boolean {
   const normalizedCrop = normalizeText(selectedCrop);
   const normalizedCommodity = normalizeText(datasetCommodity);
   if (!normalizedCrop || !normalizedCommodity) return false;
-  return normalizedCommodity.includes(normalizedCrop) || normalizedCrop.includes(normalizedCommodity);
+  return (
+    normalizedCommodity.includes(normalizedCrop) ||
+    normalizedCrop.includes(normalizedCommodity)
+  );
 }
 
-function sampleCommodityValues(records: PriceRecord[], sampleSize = 8): string[] {
-  return [...new Set(records.map((r) => (r.commodity ?? "").trim()).filter(Boolean))].slice(0, sampleSize);
+function sampleCommodityValues(
+  records: PriceRecord[],
+  sampleSize = 8,
+): string[] {
+  return [
+    ...new Set(records.map((r) => (r.commodity ?? "").trim()).filter(Boolean)),
+  ].slice(0, sampleSize);
 }
 
 function json(body: unknown, status = 200): Response {
@@ -439,17 +572,23 @@ function buildCompareResponseFromRows(
     byMandi.get(row.market)!.push(row);
   }
 
-  const latestDate = sourceRows
-    .map((r) => r.date)
-    .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+  const latestDate =
+    sourceRows
+      .map((r) => r.date)
+      .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
 
   const mandiSummaries = Array.from(byMandi.entries())
     .map(([mandi, recs]) => {
-      const sorted = [...recs].sort((a, b) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
+      const sorted = [...recs].sort(
+        (a, b) => parseArrivalDate(a.date) - parseArrivalDate(b.date),
+      );
       const latest = sorted[sorted.length - 1];
       const recent = sorted.slice(-days);
       const avgPrice = recent.length
-        ? Math.round(recent.reduce((sum, row) => sum + row.modal_price, 0) / recent.length)
+        ? Math.round(
+            recent.reduce((sum, row) => sum + row.modal_price, 0) /
+              recent.length,
+          )
         : 0;
       const freshnessDays = getFreshnessDays(latest.date);
       return {
@@ -462,21 +601,117 @@ function buildCompareResponseFromRows(
       };
     })
     .sort((a, b) => {
-      const byNewest = parseArrivalDate(b.lastUpdated) - parseArrivalDate(a.lastUpdated);
+      const byNewest =
+        parseArrivalDate(b.lastUpdated) - parseArrivalDate(a.lastUpdated);
       if (byNewest !== 0) return byNewest;
       return b.todayPrice - a.todayPrice;
     });
 
   const data = {
-    mandis: mandiSummaries.length > 0
-      ? mandiSummaries
-      : [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: latestDate, stale: true }],
+    mandis:
+      mandiSummaries.length > 0
+        ? mandiSummaries
+        : [
+            {
+              mandi: "No mandi data",
+              todayPrice: 0,
+              avgPrice: 0,
+              lastUpdated: latestDate,
+              stale: true,
+            },
+          ],
     lastUpdated: latestDate,
     freshnessDays: metadata.freshnessDays,
     source: metadata.source,
   };
   cache.set(cacheKey, { data, ts: Date.now() });
   return json(data);
+}
+
+function buildCompareRecentWindowResponse(
+  rows: PriceRecord[],
+  todayTs: number,
+  source: "live" | "kv" | "live+kv" | "live-no-kv",
+  windowDays: number,
+  includeTodayOnly: boolean,
+  cacheKey: string,
+): Response {
+  const deduped = dedupePriceRowsByMandiDate(rows).filter((r) => {
+    const freshnessDays = getFreshnessDays(r.date, todayTs);
+    if (freshnessDays === null || freshnessDays < 0) return false;
+    if (includeTodayOnly) return freshnessDays === 0;
+    return freshnessDays <= Math.max(1, windowDays);
+  });
+  const byMandi = new Map<string, PriceRecord[]>();
+  for (const row of deduped) {
+    if (!row.market) continue;
+    if (!byMandi.has(row.market)) byMandi.set(row.market, []);
+    byMandi.get(row.market)!.push(row);
+  }
+
+  const mandis = Array.from(byMandi.entries())
+    .map(([mandi, mandiRows]) => {
+      const sorted = [...mandiRows].sort(
+        (a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date),
+      );
+      const latest = sorted[0];
+      const entries: CompareMandiDateEntry[] = sorted.map((row) => ({
+        date: row.date,
+        freshnessDays: getFreshnessDays(row.date, todayTs),
+        price: row.modal_price,
+        minPrice: row.min_price,
+        maxPrice: row.max_price,
+        variety: row.variety,
+      }));
+      const avgPrice = entries.length
+        ? Math.round(
+            entries.reduce((sum, e) => sum + e.price, 0) / entries.length,
+          )
+        : 0;
+      return {
+        mandi,
+        todayPrice: latest?.modal_price ?? 0,
+        avgPrice,
+        lastUpdated: latest?.date ?? null,
+        stale: latest ? isDataStale(latest.date) : true,
+        freshnessDays: latest ? getFreshnessDays(latest.date, todayTs) : null,
+        entries,
+      };
+    })
+    .sort(
+      (a, b) =>
+        parseArrivalDate(b.lastUpdated ?? "") -
+          parseArrivalDate(a.lastUpdated ?? "") || b.todayPrice - a.todayPrice,
+    );
+
+  const availableDates = [
+    ...new Set(
+      deduped
+        .map((r) => ({ ts: parseArrivalDate(r.date), date: r.date }))
+        .filter((d) => d.ts > 0)
+        .sort((a, b) => b.ts - a.ts)
+        .map((d) => d.date),
+    ),
+  ];
+
+  const body = {
+    mandis,
+    source,
+    windowDays: includeTodayOnly ? 1 : windowDays,
+    availableDates,
+    totalRecordCount: deduped.length,
+    totalMandiCount: mandis.length,
+    freshnessDays: mandis[0]?.freshnessDays ?? null,
+    lastUpdated: availableDates[0] ?? null,
+    status:
+      mandis.length === 0
+        ? includeTodayOnly
+          ? "no_today_data"
+          : "no_recent_data"
+        : "ok",
+  };
+  cache.set(cacheKey, { data: body, ts: Date.now() });
+  return json(body);
 }
 
 async function fetchDataGov(
@@ -498,30 +733,36 @@ async function fetchDataGov(
   });
   if (commodity) params.set("filters[commodity]", commodity);
   if (market) params.set("filters[market]", market);
-  if (state)  params.set("filters[state]", state);
+  if (state) params.set("filters[state]", state);
   if (arrivalDate) params.set("filters[arrival_date]", arrivalDate);
 
   const url = `${DATA_GOV_BASE}/${RESOURCE_ID}?${params.toString()}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`data.gov.in HTTP ${res.status}`);
 
-  const body = await res.json() as { records?: any[] };
+  const body = (await res.json()) as { records?: any[] };
 
   return (body.records || [])
-    .filter((r: any) => r.modal_price && Number(r.modal_price) >= 50 && r.arrival_date)
+    .filter(
+      (r: any) =>
+        r.modal_price && Number(r.modal_price) >= 50 && r.arrival_date,
+    )
     .map((r: any) => ({
-  date:        r.arrival_date,
-  market:      r.market,
-  district:    r.district ?? "",
-  state:       r.state ?? "",
-  commodity:   r.commodity,
-  variety:     r.variety ?? undefined,
-  price:       Number(r.modal_price),
-  min_price:   Number(r.min_price),
-  max_price:   Number(r.max_price),
-  modal_price: Number(r.modal_price),
-}))
-    .sort((a: PriceRecord, b: PriceRecord) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
+      date: r.arrival_date,
+      market: r.market,
+      district: r.district ?? "",
+      state: r.state ?? "",
+      commodity: r.commodity,
+      variety: r.variety ?? undefined,
+      price: Number(r.modal_price),
+      min_price: Number(r.min_price),
+      max_price: Number(r.max_price),
+      modal_price: Number(r.modal_price),
+    }))
+    .sort(
+      (a: PriceRecord, b: PriceRecord) =>
+        parseArrivalDate(a.date) - parseArrivalDate(b.date),
+    );
 }
 
 async function fetchDataGovPaginated(
@@ -543,10 +784,26 @@ async function fetchDataGovPaginated(
 ): Promise<PriceRecord[]> {
   const allRecords: PriceRecord[] = [];
   for (let offset = 0; offset <= maxOffset; offset += limit) {
-    const page = await fetchDataGov(apiKey, commodity, market, state, limit, offset, arrivalDate);
+    const page = await fetchDataGov(
+      apiKey,
+      commodity,
+      market,
+      state,
+      limit,
+      offset,
+      arrivalDate,
+    );
     allRecords.push(...page);
     if (offset > 0 && page.length > 0) {
-      console.log(JSON.stringify({ route: "fetchDataGovPaginated", limit, offset, pageRows: page.length, totalRows: allRecords.length }));
+      console.log(
+        JSON.stringify({
+          route: "fetchDataGovPaginated",
+          limit,
+          offset,
+          pageRows: page.length,
+          totalRows: allRecords.length,
+        }),
+      );
     }
     if (page.length < limit) break;
     if (allRecords.length >= enoughRows) break;
@@ -556,49 +813,78 @@ async function fetchDataGovPaginated(
 
 // ─── Route handlers ───────────────────────────────────────────────────────────
 
-async function handlePrices(params: URLSearchParams, env: Env): Promise<Response> {
-  const crop   = params.get("crop")   ?? "";
+async function handlePrices(
+  params: URLSearchParams,
+  env: Env,
+): Promise<Response> {
+  const crop = params.get("crop") ?? "";
   const market = params.get("market") ?? "";
-  const state  = params.get("state")  ?? "Maharashtra";
-  const days   = Number(params.get("days") ?? "30");
+  const state = params.get("state") ?? "Maharashtra";
+  const days = Number(params.get("days") ?? "30");
 
   if (!crop || !market) {
     return json({ error: "crop and market are required" }, 400);
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
-  const cacheKey  = `prices:${commodity}:${market}:${state}:${days}`;
-  const cached    = cache.get(cacheKey);
+  const cacheKey = `prices:${commodity}:${market}:${state}:${days}`;
+  const cached = cache.get(cacheKey);
 
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return json({ ...(cached.data as object), fromCache: true, stale: false });
   }
 
   try {
-    const exactMarketRecords = await fetchDataGov(env.DATA_GOV_API_KEY, "", market, state, Math.max(days, 200));
-    let cropMatchedRecords = exactMarketRecords.filter((r) => commodityMatches(commodity, r.commodity));
+    const exactMarketRecords = await fetchDataGov(
+      env.DATA_GOV_API_KEY,
+      "",
+      market,
+      state,
+      Math.max(days, 200),
+    );
+    let cropMatchedRecords = exactMarketRecords.filter((r) =>
+      commodityMatches(commodity, r.commodity),
+    );
     let selectedMarketRecords = cropMatchedRecords;
     let matchedMarket = market;
     let usedMarketFallback = false;
-    let marketMatchType: "normalized-equality" | "contains-match" | "alias-apmc-match" | "none" = "normalized-equality";
+    let marketMatchType:
+      | "normalized-equality"
+      | "contains-match"
+      | "alias-apmc-match"
+      | "none" = "normalized-equality";
 
     if (!cropMatchedRecords.length) {
       usedMarketFallback = true;
-      const fallbackRecords = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 1000);
-      const cropScoped = fallbackRecords.filter((r) => commodityMatches(commodity, r.commodity));
+      const fallbackRecords = await fetchDataGov(
+        env.DATA_GOV_API_KEY,
+        "",
+        "",
+        state,
+        1000,
+      );
+      const cropScoped = fallbackRecords.filter((r) =>
+        commodityMatches(commodity, r.commodity),
+      );
       cropMatchedRecords = cropScoped;
       const picked = pickBestMarketMatch(cropScoped, market);
       matchedMarket = picked.matchedMarket ?? market;
       marketMatchType = picked.matchType;
       selectedMarketRecords = picked.matchedMarket
-        ? cropScoped.filter((r) => normalizeText(r.market) === normalizeText(picked.matchedMarket))
+        ? cropScoped.filter(
+            (r) =>
+              normalizeText(r.market) === normalizeText(picked.matchedMarket),
+          )
         : [];
     } else {
       const picked = pickBestMarketMatch(cropMatchedRecords, market);
       matchedMarket = picked.matchedMarket ?? market;
       marketMatchType = picked.matchType;
       selectedMarketRecords = picked.matchedMarket
-        ? cropMatchedRecords.filter((r) => normalizeText(r.market) === normalizeText(picked.matchedMarket))
+        ? cropMatchedRecords.filter(
+            (r) =>
+              normalizeText(r.market) === normalizeText(picked.matchedMarket),
+          )
         : [];
     }
 
@@ -613,7 +899,7 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
         matchedRows: selectedMarketRecords.length,
         usedMarketFallback,
         marketMatchType,
-      })
+      }),
     );
 
     if (!selectedMarketRecords.length) {
@@ -635,22 +921,26 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
       return json(emptyResponse);
     }
 
-    const { records: fallbackRecords, metadata } = selectWithFallback(selectedMarketRecords);
-    const trimmed = (fallbackRecords.length > 0 ? fallbackRecords : selectedMarketRecords).slice(-days);
-    const prices  = trimmed.map(r => r.modal_price);
-    const latest  = trimmed[trimmed.length - 1] ?? null;
+    const { records: fallbackRecords, metadata } = selectWithFallback(
+      selectedMarketRecords,
+    );
+    const trimmed = (
+      fallbackRecords.length > 0 ? fallbackRecords : selectedMarketRecords
+    ).slice(-days);
+    const prices = trimmed.map((r) => r.modal_price);
+    const latest = trimmed[trimmed.length - 1] ?? null;
 
     const data = {
-      data:         trimmed,
+      data: trimmed,
       currentPrice: latest?.modal_price ?? null,
       priceRange: {
-        low:  prices.length ? Math.min(...prices) : null,
+        low: prices.length ? Math.min(...prices) : null,
         high: prices.length ? Math.max(...prices) : null,
       },
       lastUpdated: latest?.date ?? null,
-      stale:       latest ? isDataStale(latest.date) : true,
+      stale: latest ? isDataStale(latest.date) : true,
       freshnessDays: metadata.freshnessDays,
-      source:      metadata.source,
+      source: metadata.source,
       requestedMarket: market,
       matchedMarket,
       matchedMarketCount: selectedMarketRecords.length,
@@ -659,48 +949,60 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
     };
     cache.set(cacheKey, { data, ts: Date.now() });
     return json(data);
-
   } catch {
-    if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
-    return json({
-      error: "data.gov.in unavailable",
-      data: [],
-      currentPrice: null,
-      priceRange: { low: null, high: null },
-      lastUpdated: null,
-      freshnessDays: null,
-      source: "fallback",
-    }, 502);
+    if (cached)
+      return json({ ...(cached.data as object), fromCache: true, stale: true });
+    return json(
+      {
+        error: "data.gov.in unavailable",
+        data: [],
+        currentPrice: null,
+        priceRange: { low: null, high: null },
+        lastUpdated: null,
+        freshnessDays: null,
+        source: "fallback",
+      },
+      502,
+    );
   }
 }
 
-async function handleTrend(params: URLSearchParams, env: Env): Promise<Response> {
-  const crop   = params.get("crop")   ?? "";
+async function handleTrend(
+  params: URLSearchParams,
+  env: Env,
+): Promise<Response> {
+  const crop = params.get("crop") ?? "";
   const market = params.get("market") ?? "";
-  const state  = params.get("state")  ?? "Maharashtra";
+  const state = params.get("state") ?? "Maharashtra";
 
   if (!crop || !market) {
     return json({ error: "crop and market are required" }, 400);
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
-  const cacheKey  = `prices:${commodity}:${market}:${state}`;
-  const cached    = cache.get(cacheKey);
+  const cacheKey = `prices:${commodity}:${market}:${state}`;
+  const cached = cache.get(cacheKey);
 
-  let records: PriceRecord[] = cached ? (cached.data as any).data ?? [] : [];
+  let records: PriceRecord[] = cached ? ((cached.data as any).data ?? []) : [];
 
   if (!records.length) {
     try {
-      records = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, market, state, 30);
-      const pricesArr = records.map(r => r.modal_price);
-      const latest    = records[records.length - 1] ?? null;
+      records = await fetchDataGov(
+        env.DATA_GOV_API_KEY,
+        commodity,
+        market,
+        state,
+        30,
+      );
+      const pricesArr = records.map((r) => r.modal_price);
+      const latest = records[records.length - 1] ?? null;
       cache.set(cacheKey, {
         ts: Date.now(),
         data: {
           data: records,
           currentPrice: latest?.modal_price ?? null,
           priceRange: {
-            low:  pricesArr.length ? Math.min(...pricesArr) : null,
+            low: pricesArr.length ? Math.min(...pricesArr) : null,
             high: pricesArr.length ? Math.max(...pricesArr) : null,
           },
           lastUpdated: latest?.date ?? null,
@@ -708,10 +1010,14 @@ async function handleTrend(params: URLSearchParams, env: Env): Promise<Response>
           source: "live",
         },
       });
-    } catch { /* fall through with empty records */ }
+    } catch {
+      /* fall through with empty records */
+    }
   }
 
-  const prices = records.map(r => r.modal_price || r.price).filter(p => p > 0);
+  const prices = records
+    .map((r) => r.modal_price || r.price)
+    .filter((p) => p > 0);
 
   function ma(n: number): number | null {
     if (prices.length < n) return null;
@@ -719,48 +1025,53 @@ async function handleTrend(params: URLSearchParams, env: Env): Promise<Response>
     return slice.reduce((a, b) => a + b, 0) / slice.length;
   }
 
-  const ma5val       = ma(5);
-  const ma10val      = ma(10);
+  const ma5val = ma(5);
+  const ma10val = ma(10);
   const currentPrice = prices[prices.length - 1] ?? null;
-  const prevPrice    = prices[prices.length - 2] ?? currentPrice;
-  const latest       = records[records.length - 1] ?? null;
+  const prevPrice = prices[prices.length - 2] ?? currentPrice;
+  const latest = records[records.length - 1] ?? null;
 
   let trend: "rising" | "falling" | "stable" = "stable";
   if (ma5val !== null && ma10val !== null) {
-    if (ma5val > ma10val * 1.001)      trend = "rising";
+    if (ma5val > ma10val * 1.001) trend = "rising";
     else if (ma5val < ma10val * 0.999) trend = "falling";
   } else if (currentPrice !== null && prevPrice !== null) {
-    if (currentPrice > prevPrice * 1.001)      trend = "rising";
+    if (currentPrice > prevPrice * 1.001) trend = "rising";
     else if (currentPrice < prevPrice * 0.999) trend = "falling";
   }
 
-  const diff      = currentPrice != null && prevPrice != null ? currentPrice - prevPrice : null;
-  const priceDiff = diff != null ? `${diff >= 0 ? "+" : ""}₹${Math.round(diff)}` : null;
+  const diff =
+    currentPrice != null && prevPrice != null ? currentPrice - prevPrice : null;
+  const priceDiff =
+    diff != null ? `${diff >= 0 ? "+" : ""}₹${Math.round(diff)}` : null;
 
   return json({
     trend,
-    ma5:         ma5val  !== null ? ma5val.toFixed(0)  : null,
-    ma10:        ma10val !== null ? ma10val.toFixed(0) : null,
+    ma5: ma5val !== null ? ma5val.toFixed(0) : null,
+    ma10: ma10val !== null ? ma10val.toFixed(0) : null,
     currentPrice,
     priceDiff,
     lastUpdated: latest?.date ?? null,
-    stale:       latest ? isDataStale(latest.date) : true,
+    stale: latest ? isDataStale(latest.date) : true,
     recordCount: records.length,
   });
 }
 
-async function handleCompare(params: URLSearchParams, env: Env): Promise<Response> {
-  const crop  = params.get("crop")  ?? "";
+async function handleCompare(
+  params: URLSearchParams,
+  env: Env,
+): Promise<Response> {
+  const crop = params.get("crop") ?? "";
   const state = params.get("state") ?? "Maharashtra";
-  const days  = Number(params.get("days") ?? "7");
+  const days = Number(params.get("days") ?? "7");
 
   if (!crop) {
     return json({ error: "crop is required" }, 400);
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
-  const cacheKey  = `compare:${commodity}:${state}`;
-  const cached    = cache.get(cacheKey);
+  const cacheKey = `compare:${commodity}:${state}:${days}`;
+  const cached = cache.get(cacheKey);
 
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return json({ ...(cached.data as object), fromCache: true });
@@ -768,22 +1079,114 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
 
   try {
     const todayTs = startOfUtcDayTs();
-    const records = await fetchDataGovPaginated(env.DATA_GOV_API_KEY, "", "", "", {
-      limit: 500,
-      enoughRows: 2500,
-      maxOffset: 5000,
-    });
-    const cropFilteredRecords = records.filter(
-      (r) => commodityMatches(commodity, r.commodity)
+    if (days <= 3) {
+      const includeTodayOnly = days <= 1;
+      const windowDays = includeTodayOnly ? 1 : 3;
+      const dateWindow = getRecentDateWindow(todayTs, windowDays);
+
+      const liveRows: PriceRecord[] = [];
+      const kvRows: PriceRecord[] = [];
+      let usedLive = false;
+      let usedKv = false;
+
+      for (const day of dateWindow) {
+        let dayLiveRows: PriceRecord[] = [];
+        try {
+          dayLiveRows = await fetchDataGovByDate(
+            env,
+            commodity,
+            state,
+            day.displayDate,
+          );
+        } catch {
+          dayLiveRows = [];
+        }
+        if (dayLiveRows.length > 0) {
+          usedLive = true;
+          liveRows.push(...dayLiveRows);
+          await writeRecentDataToKv(env, crop, state, dayLiveRows, todayTs);
+          continue;
+        }
+        if (env.RECENT_MANDI_KV) {
+          try {
+            const key = buildRecentKvKey(crop, state, day.dateKey);
+            const raw = await env.RECENT_MANDI_KV.get(key);
+            if (raw) {
+              const parsed = JSON.parse(raw) as {
+                entries?: RecentMandiSnapshot[];
+              };
+              const entries = dedupeRecentSnapshots(
+                Array.isArray(parsed?.entries) ? parsed.entries : [],
+              );
+              for (const entry of entries) {
+                kvRows.push({
+                  date: entry.date,
+                  market: entry.mandi,
+                  district: "",
+                  state,
+                  commodity,
+                  variety: entry.variety,
+                  price: entry.modal_price,
+                  min_price: entry.min_price,
+                  max_price: entry.max_price,
+                  modal_price: entry.modal_price,
+                });
+              }
+              if (entries.length > 0) usedKv = true;
+            }
+          } catch {
+            // KV-safe no-op
+          }
+        }
+      }
+
+      const combined = dedupePriceRowsByMandiDate([...liveRows, ...kvRows]);
+      const source: "live" | "kv" | "live+kv" | "live-no-kv" =
+        !env.RECENT_MANDI_KV
+          ? usedLive
+            ? "live-no-kv"
+            : "live-no-kv"
+          : usedLive && usedKv
+            ? "live+kv"
+            : usedLive
+              ? "live"
+              : "kv";
+      return buildCompareRecentWindowResponse(
+        combined,
+        todayTs,
+        source,
+        windowDays,
+        includeTodayOnly,
+        cacheKey,
+      );
+    }
+
+    const records = await fetchDataGovPaginated(
+      env.DATA_GOV_API_KEY,
+      "",
+      "",
+      "",
+      {
+        limit: 500,
+        enoughRows: 2500,
+        maxOffset: 5000,
+      },
+    );
+    const cropFilteredRecords = records.filter((r) =>
+      commodityMatches(commodity, r.commodity),
     );
     const normalizedState = normalizeText(state);
     const stateFilteredRecords = cropFilteredRecords.filter((r) => {
       const rowState = normalizeText(r.state || "");
       if (!rowState || !normalizedState) return false;
-      return rowState.includes(normalizedState) || normalizedState.includes(rowState);
+      return (
+        rowState.includes(normalizedState) || normalizedState.includes(rowState)
+      );
     });
     const usedStateFallback = stateFilteredRecords.length === 0;
-    const finalRows = usedStateFallback ? cropFilteredRecords : stateFilteredRecords;
+    const finalRows = usedStateFallback
+      ? cropFilteredRecords
+      : stateFilteredRecords;
 
     console.log(
       JSON.stringify({
@@ -796,7 +1199,7 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
         rowsAfterCropFilter: cropFilteredRecords.length,
         rowsAfterStateFilter: stateFilteredRecords.length,
         usedStateFallback,
-      })
+      }),
     );
 
     if (!cropFilteredRecords.length) {
@@ -805,12 +1208,23 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
         return buildCompareResponseFromRows(
           kvRows,
           days,
-          { freshnessDays: getFreshnessDays(kvRows[0]?.date ?? "", todayTs), source: "fallback" },
+          {
+            freshnessDays: getFreshnessDays(kvRows[0]?.date ?? "", todayTs),
+            source: "fallback",
+          },
           cacheKey,
         );
       }
       return json({
-        mandis: [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
+        mandis: [
+          {
+            mandi: "No mandi data",
+            todayPrice: 0,
+            avgPrice: 0,
+            lastUpdated: null,
+            stale: true,
+          },
+        ],
         lastUpdated: null,
         freshnessDays: null,
         source: "fallback",
@@ -818,11 +1232,13 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
     }
 
     const selected = selectWithFallback(finalRows, todayTs);
-    const candidateRecords = selected.records.length > 0 ? selected.records : finalRows;
-    const usableRows = candidateRecords.filter(
-      (r) => Boolean(r.market && r.commodity && r.date)
+    const candidateRecords =
+      selected.records.length > 0 ? selected.records : finalRows;
+    const usableRows = candidateRecords.filter((r) =>
+      Boolean(r.market && r.commodity && r.date),
     );
-    let finalCandidateRows = usableRows.length > 0 ? usableRows : candidateRecords;
+    let finalCandidateRows =
+      usableRows.length > 0 ? usableRows : candidateRecords;
     let source = selected.metadata.source;
     let freshnessDays = selected.metadata.freshnessDays;
 
@@ -846,20 +1262,39 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       await writeRecentDataToKv(env, crop, state, finalRows, todayTs);
     }
 
-    return buildCompareResponseFromRows(finalCandidateRows, days, { freshnessDays, source }, cacheKey);
-
+    return buildCompareResponseFromRows(
+      finalCandidateRows,
+      days,
+      { freshnessDays, source },
+      cacheKey,
+    );
   } catch {
-    if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
-    return json({
-      error: "data.gov.in unavailable",
-      mandis: [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: null, stale: true }],
-      freshnessDays: null,
-      source: "fallback",
-    }, 502);
+    if (cached)
+      return json({ ...(cached.data as object), fromCache: true, stale: true });
+    return json(
+      {
+        error: "data.gov.in unavailable",
+        mandis: [
+          {
+            mandi: "No mandi data",
+            todayPrice: 0,
+            avgPrice: 0,
+            lastUpdated: null,
+            stale: true,
+          },
+        ],
+        freshnessDays: null,
+        source: "fallback",
+      },
+      502,
+    );
   }
 }
 
-async function handleCrops(params: URLSearchParams, env: Env): Promise<Response> {
+async function handleCrops(
+  params: URLSearchParams,
+  env: Env,
+): Promise<Response> {
   const state = params.get("state") ?? "Maharashtra";
   const requestedDays = Number(params.get("days") ?? "15");
   const windowDays = Math.max(7, Math.min(15, requestedDays || 15));
@@ -872,13 +1307,23 @@ async function handleCrops(params: URLSearchParams, env: Env): Promise<Response>
 
   try {
     const today = new Date();
-    const bucket = new Map<string, { latestTs: number; latestDate: string; recordCount: number }>();
+    const bucket = new Map<
+      string,
+      { latestTs: number; latestDate: string; recordCount: number }
+    >();
 
     for (let dayOffset = 0; dayOffset <= windowDays; dayOffset += 1) {
       const probeDate = new Date(today);
       probeDate.setDate(today.getDate() - dayOffset);
       const arrivalDate = formatDateDdMmYyyy(probeDate);
-      const rows = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, 200, arrivalDate);
+      const rows = await fetchDataGov(
+        env.DATA_GOV_API_KEY,
+        "",
+        "",
+        state,
+        200,
+        arrivalDate,
+      );
 
       for (const row of rows) {
         const commodity = row.commodity?.trim();
@@ -886,12 +1331,18 @@ async function handleCrops(params: URLSearchParams, env: Env): Promise<Response>
         const ts = parseArrivalDate(row.date);
         if (!ts) continue;
 
-        const ageDays = Math.floor((today.getTime() - ts) / (24 * 60 * 60 * 1000));
+        const ageDays = Math.floor(
+          (today.getTime() - ts) / (24 * 60 * 60 * 1000),
+        );
         if (ageDays < 0 || ageDays > windowDays) continue;
 
         const existing = bucket.get(commodity);
         if (!existing) {
-          bucket.set(commodity, { latestTs: ts, latestDate: row.date, recordCount: 1 });
+          bucket.set(commodity, {
+            latestTs: ts,
+            latestDate: row.date,
+            recordCount: 1,
+          });
         } else {
           existing.recordCount += 1;
           if (ts > existing.latestTs) {
@@ -911,7 +1362,8 @@ async function handleCrops(params: URLSearchParams, env: Env): Promise<Response>
         recordCount: meta.recordCount,
       }))
       .sort((a, b) => {
-        const byDate = parseArrivalDate(b.latestDate) - parseArrivalDate(a.latestDate);
+        const byDate =
+          parseArrivalDate(b.latestDate) - parseArrivalDate(a.latestDate);
         if (byDate !== 0) return byDate;
         const byCount = b.recordCount - a.recordCount;
         if (byCount !== 0) return byCount;
@@ -925,7 +1377,8 @@ async function handleCrops(params: URLSearchParams, env: Env): Promise<Response>
     cache.set(cacheKey, { data, ts: Date.now() });
     return json(data);
   } catch {
-    if (cached) return json({ ...(cached.data as object), fromCache: true, stale: true });
+    if (cached)
+      return json({ ...(cached.data as object), fromCache: true, stale: true });
     return json(
       {
         crops: getActiveCropFallback(),
@@ -934,13 +1387,16 @@ async function handleCrops(params: URLSearchParams, env: Env): Promise<Response>
         stale: true,
         error: "data.gov.in unavailable",
       },
-      200
+      200,
     );
   }
 }
 
-async function handleRecommendation(params: URLSearchParams, env: Env): Promise<Response> {
-  const crop  = params.get("crop") ?? "";
+async function handleRecommendation(
+  params: URLSearchParams,
+  env: Env,
+): Promise<Response> {
+  const crop = params.get("crop") ?? "";
   const state = params.get("state") ?? "Maharashtra";
 
   if (!crop) {
@@ -949,14 +1405,27 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
   const tracingCrop = "Onion";
-  const traceEnabled = commodity.trim().toLowerCase() === tracingCrop.toLowerCase();
+  const traceEnabled =
+    commodity.trim().toLowerCase() === tracingCrop.toLowerCase();
 
   try {
     const upstreamLimit = 500;
-    const upstreamRecords = await fetchDataGov(env.DATA_GOV_API_KEY, commodity, "", state, upstreamLimit);
-    const afterDateParsing = upstreamRecords.filter((r) => parseArrivalDate(r.date) > 0);
-    const afterCropFiltering = afterDateParsing.filter((r) => commodityMatches(commodity, r.commodity));
-    const afterMandiNormalization = afterCropFiltering.filter((r) => normalizeMarketName(r.market).length > 0);
+    const upstreamRecords = await fetchDataGov(
+      env.DATA_GOV_API_KEY,
+      commodity,
+      "",
+      state,
+      upstreamLimit,
+    );
+    const afterDateParsing = upstreamRecords.filter(
+      (r) => parseArrivalDate(r.date) > 0,
+    );
+    const afterCropFiltering = afterDateParsing.filter((r) =>
+      commodityMatches(commodity, r.commodity),
+    );
+    const afterMandiNormalization = afterCropFiltering.filter(
+      (r) => normalizeMarketName(r.market).length > 0,
+    );
     const usable = afterMandiNormalization.filter(
       (r) =>
         r &&
@@ -965,19 +1434,35 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
         r.modal_price !== null &&
         r.modal_price !== undefined &&
         Number.isFinite(r.modal_price) &&
-        r.modal_price > 0
+        r.modal_price > 0,
     );
-    const finalRecords = [...usable].sort((a, b) => b.modal_price - a.modal_price);
+    const finalRecords = [...usable].sort(
+      (a, b) => b.modal_price - a.modal_price,
+    );
 
     const cropUniverseWindowDays = 15;
-    const cropUniverseRecords = await fetchDataGov(env.DATA_GOV_API_KEY, "", "", state, upstreamLimit);
+    const cropUniverseRecords = await fetchDataGov(
+      env.DATA_GOV_API_KEY,
+      "",
+      "",
+      state,
+      upstreamLimit,
+    );
     const cropUniverseTodayTs = startOfUtcDayTs();
     const cropUniverseRecent = cropUniverseRecords.filter((row) => {
       const freshnessDays = getFreshnessDays(row.date, cropUniverseTodayTs);
-      return freshnessDays !== null && freshnessDays >= 0 && freshnessDays <= cropUniverseWindowDays;
+      return (
+        freshnessDays !== null &&
+        freshnessDays >= 0 &&
+        freshnessDays <= cropUniverseWindowDays
+      );
     });
-    const cropInRecentUniverse = cropUniverseRecent.some((row) => commodityMatches(commodity, row.commodity));
-    const cropInFetchedDataset = upstreamRecords.some((row) => commodityMatches(commodity, row.commodity));
+    const cropInRecentUniverse = cropUniverseRecent.some((row) =>
+      commodityMatches(commodity, row.commodity),
+    );
+    const cropInFetchedDataset = upstreamRecords.some((row) =>
+      commodityMatches(commodity, row.commodity),
+    );
 
     const pipelineTrace = {
       crop: commodity,
@@ -986,7 +1471,8 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
       fetchScope: {
         resultLimitPerRequest: upstreamLimit,
         pagination: "No offset used; first page only",
-        mandiLimit: "No explicit mandi cap; constrained by first-page row limit",
+        mandiLimit:
+          "No explicit mandi cap; constrained by first-page row limit",
         dateWindowLimit: "No fetch-time date filter in recommendation endpoint",
       },
       cropPresence: {
@@ -997,12 +1483,30 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
         matchedRowsAfterCropFilter: afterCropFiltering.length,
       },
       stages: {
-        rawUpstreamFetched: { count: upstreamRecords.length, sample: sampleRecords(upstreamRecords) } satisfies RecommendationTraceStage,
-        afterDateParsing: { count: afterDateParsing.length, sample: sampleRecords(afterDateParsing) } satisfies RecommendationTraceStage,
-        afterCropFiltering: { count: afterCropFiltering.length, sample: sampleRecords(afterCropFiltering) } satisfies RecommendationTraceStage,
-        afterMandiNormalization: { count: afterMandiNormalization.length, sample: sampleRecords(afterMandiNormalization) } satisfies RecommendationTraceStage,
-        afterUsabilityFiltering: { count: usable.length, sample: sampleRecords(usable) } satisfies RecommendationTraceStage,
-        finalRecordsReturned: { count: finalRecords.length, sample: sampleRecords(finalRecords) } satisfies RecommendationTraceStage,
+        rawUpstreamFetched: {
+          count: upstreamRecords.length,
+          sample: sampleRecords(upstreamRecords),
+        } satisfies RecommendationTraceStage,
+        afterDateParsing: {
+          count: afterDateParsing.length,
+          sample: sampleRecords(afterDateParsing),
+        } satisfies RecommendationTraceStage,
+        afterCropFiltering: {
+          count: afterCropFiltering.length,
+          sample: sampleRecords(afterCropFiltering),
+        } satisfies RecommendationTraceStage,
+        afterMandiNormalization: {
+          count: afterMandiNormalization.length,
+          sample: sampleRecords(afterMandiNormalization),
+        } satisfies RecommendationTraceStage,
+        afterUsabilityFiltering: {
+          count: usable.length,
+          sample: sampleRecords(usable),
+        } satisfies RecommendationTraceStage,
+        finalRecordsReturned: {
+          count: finalRecords.length,
+          sample: sampleRecords(finalRecords),
+        } satisfies RecommendationTraceStage,
       },
     };
 
@@ -1026,7 +1530,7 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
     const best = sorted[0];
     const worst = sorted[sorted.length - 1];
     const average = Math.round(
-      sorted.reduce((sum, r) => sum + r.modal_price, 0) / sorted.length
+      sorted.reduce((sum, r) => sum + r.modal_price, 0) / sorted.length,
     );
 
     const current = usable[0];
@@ -1039,8 +1543,9 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
     if (current.market === best.market || gapFromBest <= average * 0.05) {
       action = "SELL";
       confidence = "high";
-      reason = "Your current mandi is at or near the best available modal price.";
-    } else if (gapFromBest > average * 0.20) {
+      reason =
+        "Your current mandi is at or near the best available modal price.";
+    } else if (gapFromBest > average * 0.2) {
       action = "CHECK OTHER MANDI";
       confidence = "high";
       reason = `A significantly better mandi is available: ${best.market} at ₹${best.modal_price}/quintal.`;
@@ -1069,13 +1574,16 @@ async function handleRecommendation(params: URLSearchParams, env: Env): Promise<
       debugTrace: traceEnabled ? pipelineTrace : undefined,
     });
   } catch {
-    return json({
-      error: "data.gov.in unavailable",
-      action: "CHECK",
-      confidence: "low",
-      reason: "Could not fetch mandi data right now.",
-      summary: "Recommendation unavailable.",
-    }, 502);
+    return json(
+      {
+        error: "data.gov.in unavailable",
+        action: "CHECK",
+        confidence: "low",
+        reason: "Could not fetch mandi data right now.",
+        summary: "Recommendation unavailable.",
+      },
+      502,
+    );
   }
 }
 
@@ -1084,17 +1592,26 @@ async function handleHealth(): Promise<Response> {
     status: "ok",
     runtime: "cloudflare-worker",
     version: "worker-ts-v2",
-    ts: Date.now()
+    ts: Date.now(),
   });
 }
 
-async function handleDebug(params: URLSearchParams, env: Env): Promise<Response> {
+async function handleDebug(
+  params: URLSearchParams,
+  env: Env,
+): Promise<Response> {
   const state = params.get("state") ?? "";
-  const records = await fetchDataGovPaginated(env.DATA_GOV_API_KEY, "", "", state, {
-    limit: 500,
-    enoughRows: 3000,
-    maxOffset: 5000,
-  });
+  const records = await fetchDataGovPaginated(
+    env.DATA_GOV_API_KEY,
+    "",
+    "",
+    state,
+    {
+      limit: 500,
+      enoughRows: 3000,
+      maxOffset: 5000,
+    },
+  );
 
   return json({
     totalRows: records.length,
@@ -1109,22 +1626,35 @@ async function handleDebug(params: URLSearchParams, env: Env): Promise<Response>
   });
 }
 
-async function handleDebugMatch(params: URLSearchParams, env: Env): Promise<Response> {
+async function handleDebugMatch(
+  params: URLSearchParams,
+  env: Env,
+): Promise<Response> {
   const crop = params.get("crop") ?? "";
   const state = params.get("state") ?? "";
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
   const normalizedState = normalizeText(state);
-  const records = await fetchDataGovPaginated(env.DATA_GOV_API_KEY, "", "", "", {
-    limit: 500,
-    enoughRows: 3000,
-    maxOffset: 5000,
-  });
+  const records = await fetchDataGovPaginated(
+    env.DATA_GOV_API_KEY,
+    "",
+    "",
+    "",
+    {
+      limit: 500,
+      enoughRows: 3000,
+      maxOffset: 5000,
+    },
+  );
 
-  const cropMatchedRows = records.filter((r) => commodityMatches(commodity, r.commodity));
+  const cropMatchedRows = records.filter((r) =>
+    commodityMatches(commodity, r.commodity),
+  );
   const stateMatchedRows = cropMatchedRows.filter((r) => {
     const rowState = normalizeText(r.state || "");
     if (!normalizedState || !rowState) return false;
-    return rowState.includes(normalizedState) || normalizedState.includes(rowState);
+    return (
+      rowState.includes(normalizedState) || normalizedState.includes(rowState)
+    );
   });
 
   const toSampleRow = (r: PriceRecord) => ({
@@ -1152,24 +1682,23 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/debug") {
-  const rows = await fetchDataGovPaginated(env, {
-    limit: 500,
-    maxOffset: 1000,
-  });
+      const rows = await fetchDataGovPaginated(env, {
+        limit: 500,
+        maxOffset: 1000,
+      });
 
-  return new Response(
-    JSON.stringify({
-      total: rows.length,
-      sample: rows.slice(0, 10),
-    }),
-    {
-      headers: { "content-type": "application/json" },
+      return new Response(
+        JSON.stringify({
+          total: rows.length,
+          sample: rows.slice(0, 10),
+        }),
+        {
+          headers: { "content-type": "application/json" },
+        },
+      );
     }
-  );
-}
 
-    
-    const path   = url.pathname;
+    const path = url.pathname;
     const params = url.searchParams;
 
     // CORS preflight
@@ -1177,7 +1706,7 @@ export default {
       return new Response(null, {
         status: 204,
         headers: {
-          "Access-Control-Allow-Origin":  "*",
+          "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
         },
@@ -1188,14 +1717,15 @@ export default {
       return json({ error: "Method not allowed" }, 405);
     }
 
-    if (path === "/api/health")         return handleHealth();
-    if (path === "/api/prices")         return handlePrices(params, env);
-    if (path === "/api/trend")          return handleTrend(params, env);
-    if (path === "/api/compare")        return handleCompare(params, env);
-    if (path === "/api/crops")          return handleCrops(params, env);
-    if (path === "/api/recommendation") return handleRecommendation(params, env);
-    if (path === "/api/debug")          return handleDebug(params, env);
-    if (path === "/api/debug/match")    return handleDebugMatch(params, env);
+    if (path === "/api/health") return handleHealth();
+    if (path === "/api/prices") return handlePrices(params, env);
+    if (path === "/api/trend") return handleTrend(params, env);
+    if (path === "/api/compare") return handleCompare(params, env);
+    if (path === "/api/crops") return handleCrops(params, env);
+    if (path === "/api/recommendation")
+      return handleRecommendation(params, env);
+    if (path === "/api/debug") return handleDebug(params, env);
+    if (path === "/api/debug/match") return handleDebugMatch(params, env);
 
     return json({ error: "Not found" }, 404);
   },
