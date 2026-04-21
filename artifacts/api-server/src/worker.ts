@@ -18,7 +18,7 @@ interface KVNamespace {
 
 export interface Env {
   DATA_GOV_API_KEY: string;
-  MANDIMIND_CACHE: KVNamespace;
+  MANDIMIND_CACHE?: KVNamespace;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -117,6 +117,7 @@ function getFreshnessDays(dateStr: string | null): number | null {
 }
 
 async function kvGet<T>(env: Env, key: string): Promise<WorkerCacheEnvelope<T> | null> {
+  if (!env.MANDIMIND_CACHE) return null;
   const raw = await env.MANDIMIND_CACHE.get(key, "json");
   if (!raw || typeof raw !== "object") return null;
   const parsed = raw as Partial<WorkerCacheEnvelope<T>>;
@@ -124,7 +125,8 @@ async function kvGet<T>(env: Env, key: string): Promise<WorkerCacheEnvelope<T> |
   return parsed as WorkerCacheEnvelope<T>;
 }
 
-async function kvPut<T>(env: Env, key: string, data: T, expirationTtl = KV_CACHE_TTL_SECONDS): Promise<void> {
+async function kvPut<T>(env: Env, key: string, data: T, expirationTtl = KV_CACHE_TTL_SECONDS): Promise<void | null> {
+  if (!env.MANDIMIND_CACHE) return null;
   const payload: WorkerCacheEnvelope<T> = {
     ts: Date.now(),
     data,
@@ -269,7 +271,7 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
     recordCount: cropMatchedRecords.length,
     usableCount: trimmed.length,
     cacheHit: false,
-    source: "live",
+    source: env.MANDIMIND_CACHE ? "live" : "live-no-kv",
   };
 
   await kvPut(env, cacheKey, data);
@@ -503,7 +505,7 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
       usableCount: mandis.length,
       freshnessDays: getFreshnessDays(latestDate),
       cacheHit: false,
-      source: "live",
+      source: env.MANDIMIND_CACHE ? "live" : "live-no-kv",
     };
 
     await kvPut(env, cacheKey, data);
