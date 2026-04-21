@@ -4,6 +4,32 @@ import { useLanguage } from "../context/LanguageContext";
 import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
 
+function ComparisonSkeleton() {
+  return (
+    <div className="space-y-4">
+      {[1, 2, 3].map((item) => (
+        <div key={item} className="rounded-2xl border border-gray-200/90 bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] animate-pulse">
+          <div className="flex justify-between mb-4">
+            <div className="h-4 w-28 rounded skeleton-shimmer" />
+            <div className="h-5 w-16 rounded-full skeleton-shimmer" />
+          </div>
+          <div className="flex items-end justify-between">
+            <div>
+              <div className="h-3 w-20 rounded skeleton-shimmer mb-2" />
+              <div className="h-9 w-32 rounded skeleton-shimmer" />
+            </div>
+            <div>
+              <div className="h-3 w-16 rounded skeleton-shimmer mb-2" />
+              <div className="h-6 w-20 rounded skeleton-shimmer" />
+            </div>
+          </div>
+          <div className="h-3 w-40 rounded skeleton-shimmer mt-4" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Comparison() {
   const { t } = useLanguage();
   const [searchParams] = useSearchParams();
@@ -12,8 +38,8 @@ export default function Comparison() {
   const [cropList, setCropList] = useState([]);
   const [cropLoading, setCropLoading] = useState(true);
 
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [compareData, setCompareData] = useState(null);
   const [compareMode, setCompareMode] = useState("today");
 
@@ -32,7 +58,9 @@ export default function Comparison() {
     }
 
     loadCrops();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -53,9 +81,12 @@ export default function Comparison() {
       }
     }
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedCrop]);
 
+  const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
   const mandis = compareData?.mandis || [];
   const modeMandis = getMandisForPriceMode(mandis, compareMode, { includeTodayInLatest: true });
   const todayMandiCount = mandis.filter((item) => item?.todayOption?.isUsable).length;
@@ -76,15 +107,9 @@ export default function Comparison() {
   };
   const displayedMandis = [...modeMandis].sort(sortFn);
   const bestMandi = displayedMandis.find((item) => Number.isFinite(item.modePrice) && item.modePrice > 0) || null;
-  const bestLabel = bestMandi
-    ? compareMode === "today"
-      ? t.comparisonBestPriceToday
-      : t.comparisonBestLatestPrice
-    : "";
+  const bestLabel = bestMandi ? (compareMode === "today" ? t.comparisonBestPriceToday : t.comparisonBestLatestPrice) : "";
   const lastUpdated = compareData?.lastUpdated || displayedMandis[0]?.lastUpdated || mandis[0]?.lastUpdated;
-  const comparableMandis = displayedMandis.filter(
-    (item) => Number.isFinite(item.todayPrice) && Number.isFinite(item.avgPrice)
-  );
+  const comparableMandis = displayedMandis.filter((item) => Number.isFinite(item.todayPrice) && Number.isFinite(item.avgPrice));
   const avgTodayPrice = comparableMandis.length
     ? Math.round(comparableMandis.reduce((sum, item) => sum + item.todayPrice, 0) / comparableMandis.length)
     : null;
@@ -94,16 +119,10 @@ export default function Comparison() {
   const hasInsightData = Number.isFinite(avgTodayPrice) && Number.isFinite(avgRecentPrice) && avgRecentPrice > 0;
   const comparisonGapPct = hasInsightData ? ((avgTodayPrice - avgRecentPrice) / avgRecentPrice) * 100 : null;
   const similarityThresholdPct = 1;
-  const insightType = !hasInsightData
-    ? null
-    : comparisonGapPct > similarityThresholdPct
-      ? "sell"
-      : comparisonGapPct < -similarityThresholdPct
-        ? "wait"
-        : "neutral";
+  const insightType = !hasInsightData ? null : comparisonGapPct > similarityThresholdPct ? "sell" : comparisonGapPct < -similarityThresholdPct ? "wait" : "neutral";
   const insightStyles = {
-    sell: "bg-green-50 border-green-200 text-green-800",
-    wait: "bg-amber-50 border-amber-200 text-amber-800",
+    sell: "bg-emerald-50 border-emerald-200 text-emerald-900",
+    wait: "bg-amber-50 border-amber-200 text-amber-900",
     neutral: "bg-blue-50 border-blue-200 text-blue-800",
   };
   const insightTexts = {
@@ -111,63 +130,51 @@ export default function Comparison() {
     wait: t.comparisonInsightWait,
     neutral: t.comparisonInsightNeutral,
   };
-  const showTodayUpdatingNote = compareMode === "today"
-    && !loading
-    && !error
-    && mandis.length > 0
-    && todayMandiCount < mandis.length;
-  const recentModeDate = compareMode === "latest"
-    ? displayedMandis[0]?.modeDate || null
-    : null;
+  const showTodayUpdatingNote = compareMode === "today" && !loading && !error && mandis.length > 0 && todayMandiCount < mandis.length;
+  const recentModeDate = compareMode === "latest" ? displayedMandis[0]?.modeDate || null : null;
   const freshnessBanner = getFreshnessMessage(compareData?.freshnessDays ?? displayedMandis[0]?.modeFreshnessDays, t);
   const showModeBanner = showTodayUpdatingNote || compareMode === "latest";
-  const getLatestFreshnessLabel = (freshnessDays) => {
-    if (!Number.isFinite(freshnessDays)) return t.latestAvailable;
-    if (freshnessDays <= 0) return t.today;
-    if (freshnessDays === 1) return t.oneDayAgo;
-    if (freshnessDays === 2) return t.twoDaysAgo;
-    if (freshnessDays === 3) return t.threeDaysAgo;
-    return t.daysAgoGeneric.replace("{days}", freshnessDays);
-  };
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
-      <div className="px-4 pt-6 pb-4">
-        <h1
-          className="text-2xl font-extrabold text-[#004c22] mb-1"
-          style={{ fontFamily: "Manrope, sans-serif" }}
-        >
+      <div className="px-4 pt-5 pb-4">
+        <h1 className="text-[1.7rem] font-extrabold text-[#063d25] mb-1 tracking-tight" style={{ fontFamily: "Manrope, sans-serif" }}>
           {t.comparison}
         </h1>
+        <p className="text-xs text-gray-500 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          {t.comparePricesAcrossMaharashtra}
+        </p>
+
         {lastUpdated && !loading && (
-          <p className="text-xs text-gray-400 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {t.updatedThrough}: {lastUpdated}
-          </p>
+          <div className="mb-3 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 shadow-sm">
+            <p className="text-xs text-slate-600" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              <span className="font-semibold text-slate-700">{t.updatedThrough}</span>: {lastUpdated}
+            </p>
+            {!showModeBanner && <p className="text-[11px] text-slate-500 mt-1">{freshnessBanner}</p>}
+          </div>
         )}
-        {!loading && !error && !showModeBanner && (
-          <p className="text-xs text-blue-700 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {freshnessBanner}
-          </p>
-        )}
+
         <select
           value={selectedCrop}
           onChange={(e) => setSelectedCrop(e.target.value)}
           disabled={cropLoading}
-          className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3 text-base text-[#1e1c10] outline-none focus:border-[#004c22]"
+          className="w-full bg-white border border-gray-300 rounded-xl px-4 py-3 text-base text-[#1e1c10] outline-none focus:border-[#004c22] focus:ring-2 focus:ring-[#004c22]/10"
           style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
         >
           <option value="">{cropLoading ? t.loadingAvailableCrops : t.selectCrop}</option>
           {cropList.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
 
-        <div className="mt-3 bg-white rounded-xl p-1 border border-gray-200 grid grid-cols-2 gap-1">
+        <div className="mt-3 bg-white rounded-2xl p-1 border border-gray-200 shadow-[0_8px_18px_rgba(15,23,42,0.08)] grid grid-cols-2 gap-1">
           <button
             type="button"
             onClick={() => setCompareMode("today")}
-            className={`text-sm py-2 px-2 rounded-lg font-semibold transition-colors ${
-              compareMode === "today" ? "bg-[#004c22] text-white" : "text-[#004c22] bg-transparent"
+            className={`text-sm py-2.5 px-2 rounded-xl font-semibold transition-all ${
+              compareMode === "today" ? "bg-[#004c22] text-white shadow-[0_6px_14px_rgba(0,76,34,0.28)] ring-1 ring-[#004c22]/40 -translate-y-[1px]" : "text-[#004c22] bg-transparent"
             }`}
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
@@ -176,25 +183,24 @@ export default function Comparison() {
           <button
             type="button"
             onClick={() => setCompareMode("latest")}
-            className={`text-sm py-2 px-2 rounded-lg font-semibold transition-colors ${
-              compareMode === "latest" ? "bg-[#775d00] text-white" : "text-[#775d00] bg-transparent"
+            className={`text-sm py-2.5 px-2 rounded-xl font-semibold transition-all ${
+              compareMode === "latest" ? "bg-[#775d00] text-white shadow-[0_6px_14px_rgba(119,93,0,0.28)] ring-1 ring-[#775d00]/40 -translate-y-[1px]" : "text-[#775d00] bg-transparent"
             }`}
             style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
           >
             {t.priceTypeLatest}
           </button>
         </div>
+
         {!loading && !error && showModeBanner && (
-          <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
+          <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
             {showTodayUpdatingNote ? (
               <p className="text-xs text-blue-800" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                 {t.todayModeUpdatingNote}
               </p>
             ) : (
               <p className={`text-xs ${recentModeDate ? "text-blue-800" : "text-blue-600"}`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {recentModeDate
-                  ? t.recentModeDateNoteCompare.replace("{date}", recentModeDate)
-                  : t.recentModeDateUnavailable}
+                {recentModeDate ? t.recentModeDateNoteCompare.replace("{date}", recentModeDate) : t.recentModeDateUnavailable}
               </p>
             )}
           </div>
@@ -203,56 +209,68 @@ export default function Comparison() {
 
       <div className="px-4">
         {loading && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <div className="w-8 h-8 rounded-full border-4 border-gray-200 border-t-[#004c22] animate-spin" />
-            <p className="text-sm text-gray-400" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          <div className="pb-2">
+            <p className="text-sm text-slate-500 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.fetchingLive}
+            </p>
+            <ComparisonSkeleton />
+          </div>
+        )}
+
+        {!loading && !error && mandis.length > 0 && (
+          <div className="mb-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Market context
+            </p>
+            <p className="text-sm font-semibold text-slate-800" style={{ fontFamily: "Manrope, sans-serif" }}>
+              {selectedCropName} · Maharashtra
+            </p>
+            <p className="text-xs text-slate-600 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              {compareMode === "today" ? t.liveToday : t.latestAvailableLast3Days} • {freshnessBanner}
             </p>
           </div>
         )}
 
         {!loading && error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
-            <p className="text-red-600 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-5 text-center">
+            <p className="text-red-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.dataUnavailableTryAgain}
             </p>
-            <p className="text-xs text-red-400 mt-1">{t.dataUnavailableTryAgain}</p>
+            <p className="text-xs text-red-500 mt-1">Please refresh in a minute. Live mandi feeds can be delayed.</p>
           </div>
         )}
 
         {!loading && !error && mandis.length === 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
-            <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center">
+            <p className="text-amber-800 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.noMandiDataLast3Days}
             </p>
-            <p className="text-xs text-amber-500 mt-1">{t.todayDataUnavailable}</p>
+            <p className="text-xs text-amber-700 mt-1">{t.todayDataUnavailable}. Try another crop or check later as updates arrive.</p>
           </div>
         )}
 
         {!loading && !error && mandis.length > 0 && (
           <>
             {insightType && (
-              <div className={`rounded-xl border p-3 mb-3 ${insightStyles[insightType]}`}>
-                <p className="text-xs font-semibold mb-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              <div className={`rounded-2xl border p-3 mb-3 ${insightStyles[insightType]}`}>
+                <p className="text-[11px] font-semibold mb-1 uppercase tracking-wide" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                   {t.simpleInsight}
                 </p>
                 <p className="text-sm font-semibold" style={{ fontFamily: "Manrope, sans-serif" }}>
                   {insightTexts[insightType]}
                 </p>
                 <p className="text-xs mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  {t.comparisonInsightBasis
-                    .replace("{today}", avgTodayPrice.toLocaleString("en-IN"))
-                    .replace("{recent}", avgRecentPrice.toLocaleString("en-IN"))}
+                  {t.comparisonInsightBasis.replace("{today}", avgTodayPrice.toLocaleString("en-IN")).replace("{recent}", avgRecentPrice.toLocaleString("en-IN"))}
                 </p>
               </div>
             )}
 
             {bestMandi && displayedMandis.length > 0 && (
-              <div className="bg-[#004c22] rounded-xl p-3 mb-4 flex items-center justify-between">
+              <div className="bg-gradient-to-r from-[#083f26] to-[#0b5734] rounded-2xl p-3.5 mb-4 flex items-center justify-between gap-3 shadow-[0_8px_20px_rgba(6,61,37,0.25)]">
                 <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                   {bestLabel}:
                 </span>
-                <span className="text-[#feb234] font-bold text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
+                <span className="text-[#ffd17a] font-bold text-base text-right" style={{ fontFamily: "Manrope, sans-serif" }}>
                   {bestMandi.mandi} — {bestMandi.modePrice > 0 ? `₹${bestMandi.modePrice.toLocaleString("en-IN")}` : "—"}
                 </span>
               </div>
@@ -260,40 +278,37 @@ export default function Comparison() {
 
             {displayedMandis.length > 0 && (
               <div className="mb-2">
-                <h2
-                  className={`text-base font-bold mb-2 ${compareMode === "today" ? "text-[#004c22]" : "text-[#775d00]"}`}
-                  style={{ fontFamily: "Manrope, sans-serif" }}
-                >
+                <h2 className={`text-base font-bold mb-2 ${compareMode === "today" ? "text-[#004c22]" : "text-[#775d00]"}`} style={{ fontFamily: "Manrope, sans-serif" }}>
                   {compareMode === "today" ? t.liveToday : t.latestAvailableLast3Days}
                 </h2>
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {displayedMandis.map((item, idx) => (
-                    <MandiCard
+                    <div
                       key={`${compareMode}-${item.mandi}`}
+                      className="animate-fade-in-up"
+                      style={{ animationDelay: `${idx * 45}ms` }}
+                    >
+                      <MandiCard
                       mandi={item.mandi}
                       todayPrice={item.modePrice}
                       avgPrice={item.avgPrice}
-                      lastUpdated={item.modeDate || item.lastUpdated}
                       stale={compareMode === "latest"}
                       freshnessDays={item.modeFreshnessDays}
-                      freshnessText={
-                        compareMode === "today"
-                          ? item.modeHasData
-                            ? t.today
-                            : t.todayDataUnavailable
-                          : getLatestFreshnessLabel(item.modeFreshnessDays)
-                      }
                       isBest={idx === 0}
                       rank={idx + 1}
                       bestLabel={idx === 0 ? bestLabel : ""}
                     />
+                    </div>
                   ))}
                 </div>
               </div>
             )}
 
-            <p className="text-center text-xs text-gray-400 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+            <p className="text-center text-xs text-gray-500 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.mandiCountSummary.replace("{count}", displayedMandis.length)}
+            </p>
+            <p className="text-center text-[11px] text-gray-400 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              MandiMind · Smarter mandi decisions, grounded in data
             </p>
           </>
         )}

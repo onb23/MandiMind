@@ -23,3 +23,35 @@
     font-size: 16px;
   }
 }
+
+@layer utilities {
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 320ms ease-out both;
+  }
+
+  @keyframes skeleton-shimmer {
+    0% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0 50%;
+    }
+  }
+
+  .skeleton-shimmer {
+    background: linear-gradient(110deg, #e5e7eb 8%, #f3f4f6 18%, #e5e7eb 33%);
+    background-size: 220% 100%;
+    animation: skeleton-shimmer 1.2s linear infinite;
+  }
+}
