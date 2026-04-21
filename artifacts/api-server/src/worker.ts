@@ -83,6 +83,70 @@ function normalizeCommodity(value: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function normalizeMarketAlias(value: string): string {
+  return (value ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\(.*?\)/g, " ")
+    .replace(/\b(a\.?p\.?m\.?c\.?|apmc|market|yard)\b/g, " ")
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pickBestMarketMatch(records: PriceRecord[], requestedMarket: string) {
+  const requestedNormalized = normalizeCommodity(requestedMarket);
+  const requestedAlias = normalizeMarketAlias(requestedMarket);
+  const uniqueMarkets = [...new Set(records.map((r) => r.market).filter(Boolean))];
+
+  const withMeta = uniqueMarkets.map((market) => ({
+    market,
+    normalized: normalizeCommodity(market),
+    aliasNormalized: normalizeMarketAlias(market),
+  }));
+
+  const byDeterministicOrder = (a: { market: string }, b: { market: string }) =>
+    a.market.localeCompare(b.market, "en", { sensitivity: "base" });
+
+  const exact = withMeta
+    .filter((entry) => entry.normalized === requestedNormalized)
+    .sort(byDeterministicOrder)[0];
+  if (exact) return { matchedMarket: exact.market, matchType: "normalized-equality" as const };
+
+  const contains = withMeta
+    .filter((entry) => {
+      if (!requestedNormalized || !entry.normalized) return false;
+      return entry.normalized.includes(requestedNormalized) || requestedNormalized.includes(entry.normalized);
+    })
+    .sort((a, b) => {
+      const aDelta = Math.abs(a.normalized.length - requestedNormalized.length);
+      const bDelta = Math.abs(b.normalized.length - requestedNormalized.length);
+      if (aDelta !== bDelta) return aDelta - bDelta;
+      return byDeterministicOrder(a, b);
+    })[0];
+  if (contains) return { matchedMarket: contains.market, matchType: "contains-match" as const };
+
+  const aliasMatch = withMeta
+    .filter((entry) => {
+      if (!requestedAlias || !entry.aliasNormalized) return false;
+      return (
+        entry.aliasNormalized === requestedAlias ||
+        entry.aliasNormalized.includes(requestedAlias) ||
+        requestedAlias.includes(entry.aliasNormalized)
+      );
+    })
+    .sort((a, b) => {
+      const aDelta = Math.abs(a.aliasNormalized.length - requestedAlias.length);
+      const bDelta = Math.abs(b.aliasNormalized.length - requestedAlias.length);
+      if (aDelta !== bDelta) return aDelta - bDelta;
+      return byDeterministicOrder(a, b);
+    })[0];
+  if (aliasMatch) return { matchedMarket: aliasMatch.market, matchType: "alias-apmc-match" as const };
+
+  return { matchedMarket: null, matchType: "none" as const };
+}
+
 function normalizeCacheSegment(value: string): string {
   const normalized = normalizeCommodity(value);
   return normalized || "all";
@@ -226,6 +290,9 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
     state,
     Math.max(days, 200)
   );
+  let selectedMarketRecords = cropMatchedRecords;
+  let matchedMarket = market;
+  let marketMatchType: "normalized-equality" | "contains-match" | "alias-apmc-match" | "none" = "normalized-equality";
 
   if (!cropMatchedRecords.length && market) {
     const broader = await fetchDataGov(
@@ -235,12 +302,20 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
       state,
       1000
     );
-
-    const requestedMarket = normalizeCommodity(market);
-
-    cropMatchedRecords = broader.filter((r) =>
-      normalizeCommodity(r.market).includes(requestedMarket)
-    );
+    cropMatchedRecords = broader;
+    const picked = pickBestMarketMatch(cropMatchedRecords, market);
+    matchedMarket = picked.matchedMarket ?? market;
+    marketMatchType = picked.matchType;
+    selectedMarketRecords = picked.matchedMarket
+      ? cropMatchedRecords.filter((r) => normalizeCommodity(r.market) === normalizeCommodity(picked.matchedMarket))
+      : [];
+  } else {
+    const picked = pickBestMarketMatch(cropMatchedRecords, market);
+    matchedMarket = picked.matchedMarket ?? market;
+    marketMatchType = picked.matchType;
+    selectedMarketRecords = picked.matchedMarket
+      ? cropMatchedRecords.filter((r) => normalizeCommodity(r.market) === normalizeCommodity(picked.matchedMarket))
+      : [];
   }
 
   console.log(
@@ -249,12 +324,15 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
       selectedCrop: crop,
       normalizedSelectedCrop: normalizeCommodity(commodity),
       requestedMarket: market,
-      matchedRows: cropMatchedRecords.length,
+      matchedMarket,
+      matchedRows: selectedMarketRecords.length,
+      matchedMarketCount: selectedMarketRecords.length,
       sampleMarkets: [...new Set(cropMatchedRecords.map((r) => r.market))].slice(0, 10),
+      marketMatchType,
     })
   );
 
-  const trimmed = cropMatchedRecords.slice(-days);
+  const trimmed = selectedMarketRecords.slice(-days);
   const prices = trimmed.map((r) => r.modal_price);
   const latest = trimmed[trimmed.length - 1] ?? null;
 
@@ -268,7 +346,10 @@ async function handlePrices(params: URLSearchParams, env: Env): Promise<Response
     lastUpdated: latest?.date ?? null,
     stale: latest ? isDataStale(latest.date) : true,
     freshnessDays: getFreshnessDays(latest?.date ?? null),
-    recordCount: cropMatchedRecords.length,
+    requestedMarket: market,
+    matchedMarket: selectedMarketRecords.length ? matchedMarket : null,
+    matchedMarketCount: selectedMarketRecords.length,
+    recordCount: selectedMarketRecords.length,
     usableCount: trimmed.length,
     cacheHit: false,
     source: env.MANDIMIND_CACHE ? "live" : "live-no-kv",
