@@ -26,6 +26,10 @@ tsconfig = "tsconfig.worker.json"
 [vars]
 NODE_ENV = "production"
 
+[[kv_namespaces]]
+binding = "MANDIMIND_CACHE"
+id = "a9a67d4d453a42c694998a232d6d03e4"
+
 # ── Observability ─────────────────────────────────────────────────────────────
 [observability]
 enabled = true
