@@ -88,6 +88,11 @@ export default function Comparison() {
 
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
   const mandis = compareData?.mandis || [];
+  const dataStatus = compareData?.status || "today_has_data";
+  const isTodayDataAvailable = dataStatus === "today_has_data";
+  const hasRecentFallbackData = dataStatus === "today_no_data_recent_exists";
+  const noTodayOrRecentData = dataStatus === "today_no_data_no_recent";
+  const isTodayModeWithFallback = compareMode === "today" && hasRecentFallbackData;
   const modeMandis = getMandisForPriceMode(mandis, compareMode, { includeTodayInLatest: true });
   const todayMandiCount = mandis.filter((item) => item?.todayOption?.isUsable).length;
   const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
@@ -130,10 +135,24 @@ export default function Comparison() {
     wait: t.comparisonInsightWait,
     neutral: t.comparisonInsightNeutral,
   };
-  const showTodayUpdatingNote = compareMode === "today" && !loading && !error && mandis.length > 0 && todayMandiCount < mandis.length;
+  const showTodayUpdatingNote = compareMode === "today" && !isTodayModeWithFallback && !loading && !error && mandis.length > 0 && todayMandiCount < mandis.length;
   const recentModeDate = compareMode === "latest" ? displayedMandis[0]?.modeDate || null : null;
   const freshnessBanner = getFreshnessMessage(compareData?.freshnessDays ?? displayedMandis[0]?.modeFreshnessDays, t);
   const showModeBanner = showTodayUpdatingNote || compareMode === "latest";
+  const shouldShowNoDataState = noTodayOrRecentData && compareMode === "today";
+  const shouldRenderCards = !shouldShowNoDataState && displayedMandis.length > 0;
+  const modeSectionTitle = isTodayModeWithFallback ? "शेवटचा उपलब्ध डेटा" : compareMode === "today" ? t.liveToday : t.latestAvailableLast3Days;
+  const contextLine = isTodayDataAvailable
+    ? "आजचे लाईव्ह • महाराष्ट्र"
+    : hasRecentFallbackData
+      ? "शेवटचा उपलब्ध डेटा • महाराष्ट्र"
+      : "डेटा उपलब्ध नाही • महाराष्ट्र";
+  const contextBadge = isTodayDataAvailable ? "LIVE" : hasRecentFallbackData ? "RECENT" : "STALE";
+  const contextBadgeClass = isTodayDataAvailable
+    ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+    : hasRecentFallbackData
+      ? "bg-amber-50 text-amber-700 border border-amber-100"
+      : "bg-rose-50 text-rose-700 border border-rose-100";
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -192,7 +211,20 @@ export default function Comparison() {
           </button>
         </div>
 
-        {!loading && !error && showModeBanner && (
+        {!loading && !error && hasRecentFallbackData && compareMode === "today" && (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5">
+            <p className="text-xs text-amber-900" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              आजचा डेटा उपलब्ध नाही — शेवटचा उपलब्ध डेटा दाखवत आहोत
+            </p>
+            {lastUpdated && (
+              <p className="text-[11px] text-amber-800 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                शेवटचा अपडेट: {lastUpdated}
+              </p>
+            )}
+          </div>
+        )}
+
+        {!loading && !error && !hasRecentFallbackData && showModeBanner && (
           <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
             {showTodayUpdatingNote ? (
               <p className="text-xs text-blue-800" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
@@ -217,16 +249,22 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && mandis.length > 0 && (
+        {!loading && !error && (mandis.length > 0 || noTodayOrRecentData) && (
           <div className="mb-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
             <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               Market context
             </p>
-            <p className="text-sm font-semibold text-slate-800" style={{ fontFamily: "Manrope, sans-serif" }}>
-              {selectedCropName} · Maharashtra
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-slate-800" style={{ fontFamily: "Manrope, sans-serif" }}>
+                {selectedCropName} · Maharashtra
+              </p>
+              <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold tracking-wide shrink-0 ${contextBadgeClass}`}>
+                {contextBadge}
+              </span>
+            </div>
             <p className="text-xs text-slate-600 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {compareMode === "today" ? t.liveToday : t.latestAvailableLast3Days} • {freshnessBanner}
+              {contextLine}
+              {!noTodayOrRecentData && ` • ${freshnessBanner}`}
             </p>
           </div>
         )}
@@ -240,12 +278,21 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && mandis.length === 0 && (
+        {!loading && !error && mandis.length === 0 && !noTodayOrRecentData && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center">
             <p className="text-amber-800 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.noMandiDataLast3Days}
             </p>
             <p className="text-xs text-amber-700 mt-1">{t.todayDataUnavailable}. Try another crop or check later as updates arrive.</p>
+          </div>
+        )}
+
+        {!loading && !error && shouldShowNoDataState && (
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-center">
+            <p className="text-slate-800 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              आजचा डेटा उपलब्ध नाही
+            </p>
+            <p className="text-xs text-slate-600 mt-1">कृपया नंतर पुन्हा तपासा</p>
           </div>
         )}
 
@@ -265,7 +312,7 @@ export default function Comparison() {
               </div>
             )}
 
-            {bestMandi && displayedMandis.length > 0 && (
+            {bestMandi && shouldRenderCards && (
               <div className="bg-gradient-to-r from-[#083f26] to-[#0b5734] rounded-2xl p-3.5 mb-4 flex items-center justify-between gap-3 shadow-[0_8px_20px_rgba(6,61,37,0.25)]">
                 <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                   {bestLabel}:
@@ -276,10 +323,10 @@ export default function Comparison() {
               </div>
             )}
 
-            {displayedMandis.length > 0 && (
+            {shouldRenderCards && (
               <div className="mb-2">
                 <h2 className={`text-base font-bold mb-2 ${compareMode === "today" ? "text-[#004c22]" : "text-[#775d00]"}`} style={{ fontFamily: "Manrope, sans-serif" }}>
-                  {compareMode === "today" ? t.liveToday : t.latestAvailableLast3Days}
+                  {modeSectionTitle}
                 </h2>
                 <div className="space-y-4">
                   {displayedMandis.map((item, idx) => (
@@ -292,8 +339,9 @@ export default function Comparison() {
                       mandi={item.mandi}
                       todayPrice={item.modePrice}
                       avgPrice={item.avgPrice}
-                      stale={compareMode === "latest"}
+                      stale={compareMode === "latest" || isTodayModeWithFallback}
                       freshnessDays={item.modeFreshnessDays}
+                      forceBadge={isTodayModeWithFallback ? "RECENT" : undefined}
                       isBest={idx === 0}
                       rank={idx + 1}
                       bestLabel={idx === 0 ? bestLabel : ""}
@@ -304,9 +352,11 @@ export default function Comparison() {
               </div>
             )}
 
-            <p className="text-center text-xs text-gray-500 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {t.mandiCountSummary.replace("{count}", displayedMandis.length)}
-            </p>
+            {shouldRenderCards && (
+              <p className="text-center text-xs text-gray-500 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {t.mandiCountSummary.replace("{count}", displayedMandis.length)}
+              </p>
+            )}
             <p className="text-center text-[11px] text-gray-400 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               MandiMind · Smarter mandi decisions, grounded in data
             </p>

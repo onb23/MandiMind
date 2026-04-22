@@ -1,6 +1,20 @@
 import { useLanguage } from "../context/LanguageContext";
 
-const getFreshnessBadge = (freshnessDays) => {
+const getFreshnessBadge = (freshnessDays, forceBadge) => {
+  if (forceBadge === "LIVE") {
+    return {
+      label: "LIVE",
+      className: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+    };
+  }
+
+  if (forceBadge === "RECENT") {
+    return {
+      label: "RECENT",
+      className: "bg-amber-50 text-amber-700 border border-amber-100",
+    };
+  }
+
   if (!Number.isFinite(freshnessDays) || freshnessDays >= 3) {
     return {
       label: "STALE",
@@ -38,6 +52,7 @@ export default function MandiCard({
   isBest,
   rank,
   bestLabel,
+  forceBadge,
 }) {
   const { t } = useLanguage();
 
@@ -61,7 +76,7 @@ export default function MandiCard({
           ? t.comparisonTrendFlatVsAvg
           : null;
 
-  const freshnessBadge = getFreshnessBadge(freshnessDays);
+  const freshnessBadge = getFreshnessBadge(freshnessDays, forceBadge);
   const relativeUpdated = getUpdatedLabel(freshnessDays, t);
 
   return (
