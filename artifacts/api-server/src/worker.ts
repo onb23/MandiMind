@@ -461,17 +461,33 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
   const cacheKey  = buildCacheKey("compare", commodity, state, "", `mode:${mode}:days:${days}`);
-  const cached    = await kvGet<any>(env, cacheKey);
+const cached    = await kvGet<any>(env, cacheKey);
 
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    const cachedData = cached.data as any;
+const today = new Date();
+const formatDate = (d: Date) => {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = String(d.getFullYear());
+  return `${dd}/${mm}/${yyyy}`;
+};
+const todayKey = formatDate(today);
+
+if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+  const cachedData = cached.data as any;
+  const cachedLastUpdated = cachedData?.lastUpdated ?? null;
+  const canUseCachedTodayMode =
+    mode !== "today" ||
+    (cachedData?.status === "today_has_data" && cachedLastUpdated === todayKey);
+
+  if (canUseCachedTodayMode) {
     return json({
       ...cachedData,
       source: "kv-fresh",
       cacheHit: true,
-      freshnessDays: getFreshnessDays(cachedData?.lastUpdated ?? null),
+      freshnessDays: getFreshnessDays(cachedLastUpdated),
     });
   }
+}
 
   try {
     const today = new Date();
@@ -519,22 +535,26 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
     let latestDate: string | null = null;
 
     if (mode === "today") {
-      if (todayRows.length > 0) {
-        status = "today_has_data";
-        candidateRecords = todayRows;
-        latestDate = todayKey;
-      } else if (recentRows.length > 0) {
-        status = "today_no_data_recent_exists";
-        candidateRecords = [];
-        latestDate = recentRows
-          .map((r) => r.date)
-          .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
-      } else {
-        status = "today_no_data_no_recent";
-        candidateRecords = [];
-        latestDate = null;
-      }
-    } else {
+  const hasRealToday = todayRows.some((r) => r.date === todayKey);
+
+  if (hasRealToday) {
+    status = "today_has_data";
+    candidateRecords = todayRows.filter((r) => r.date === todayKey);
+    latestDate = todayRows
+      .map((r) => r.date)
+      .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+  } else if (recentRows.length > 0) {
+    status = "today_no_data_recent_exists";
+    candidateRecords = [];
+    latestDate = recentRows
+      .map((r) => r.date)
+      .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+  } else {
+    status = "today_no_data_no_recent";
+    candidateRecords = [];
+    latestDate = null;
+  }
+} else {
       if (recentRows.length > 0) {
         status = "recent_has_data";
         candidateRecords = recentRows;
@@ -555,22 +575,25 @@ async function handleCompare(params: URLSearchParams, env: Env): Promise<Respons
     }
 
     const mandis = Array.from(byMandi.entries())
-      .map(([mandi, recs]) => {
-        const sorted = [...recs].sort((a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date));
-        const latest = sorted[0];
-        const recentSlice = sorted.slice(0, days);
-        const avgPrice = recentSlice.length
-          ? Math.round(recentSlice.reduce((sum, r) => sum + r.modal_price, 0) / recentSlice.length)
-          : 0;
+  .map(([mandi, recs]) => {
+    const sorted = [...recs].sort((a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date));
+    const latest = sorted[0];
+    const recentSlice = sorted.slice(0, days);
+    const avgPrice = recentSlice.length
+      ? Math.round(recentSlice.reduce((sum, r) => sum + r.modal_price, 0) / recentSlice.length)
+      : 0;
 
-        return {
-          mandi,
-          todayPrice: latest.modal_price,
-          avgPrice,
-          lastUpdated: latest.date,
-          stale: isDataStale(latest.date),
-        };
-      })
+    const latestDate = latest?.date ?? null;
+    const isRealToday = latestDate === todayKey;
+
+    return {
+      mandi,
+      todayPrice: isRealToday ? latest.modal_price : null,
+      avgPrice,
+      lastUpdated: latestDate,
+      stale: latestDate ? isDataStale(latestDate) : true,
+    };
+  })
       .sort((a, b) => b.todayPrice - a.todayPrice);
 
     const data = {
