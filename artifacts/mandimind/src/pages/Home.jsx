@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
+import { trackEvent } from "../lib/analytics";
 import logo from "../assets/logo.svg";
 
 function FieldSkeleton() {
@@ -14,7 +15,7 @@ function FieldSkeleton() {
 }
 
 export default function Home() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
 
   const [selectedCrop,  setSelectedCrop]  = useState("");
@@ -360,11 +361,18 @@ export default function Home() {
         </div>
 
         <button
-          onClick={() =>
+          onClick={() => {
+            trackEvent("home_search_submitted", {
+              page: "/",
+              language,
+              crop: selectedCrop,
+              state: "Maharashtra",
+              mandi: selectedMandi,
+            });
             navigate(
               `/input?crop=${selectedCrop}&mandi=${encodeURIComponent(selectedMandi)}&state=Maharashtra`
-            )
-          }
+            );
+          }}
           disabled={!selectedCrop || !selectedMandi || !hasVisibleMandis || Boolean(mandiError) || mandiLoading}
           className="w-full bg-[#feb234] text-[#1e1c10] font-bold text-lg py-4 rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
           style={{ fontFamily: "Manrope, sans-serif", minHeight: "56px" }}

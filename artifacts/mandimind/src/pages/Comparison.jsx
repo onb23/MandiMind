@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import SpeakerButton from "../components/SpeakerButton";
 import { useSpeechAssistant } from "../utils/speechSynthesis";
 import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
+import { trackEvent } from "../lib/analytics";
+import { useSpeechAssistant } from "../hooks/useSpeechAssistant";
 
 function ComparisonSkeleton() {
   return (
@@ -45,6 +47,7 @@ export default function Comparison() {
   const [error, setError] = useState(false);
   const [compareData, setCompareData] = useState(null);
   const [compareMode, setCompareMode] = useState("today");
+  const lastTrackedSearchRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +82,16 @@ export default function Comparison() {
           setCompareData(null);
         } else {
           setCompareData(result);
+          const searchKey = `${selectedCrop}|Maharashtra`;
+          if (lastTrackedSearchRef.current !== searchKey) {
+            lastTrackedSearchRef.current = searchKey;
+            trackEvent("compare_searched", {
+              page: "/compare",
+              language,
+              crop: selectedCrop,
+              state: "Maharashtra",
+            });
+          }
         }
         setLoading(false);
       }
@@ -87,7 +100,7 @@ export default function Comparison() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCrop]);
+  }, [selectedCrop, language]);
 
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
   const mandis = compareData?.mandis || [];
