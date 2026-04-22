@@ -1,4 +1,5 @@
 import { useLanguage } from "../context/LanguageContext";
+import SpeakerButton from "./SpeakerButton";
 
 const getFreshnessBadge = (freshnessDays, forceBadge) => {
   if (forceBadge === "LIVE") {
@@ -53,6 +54,11 @@ export default function MandiCard({
   rank,
   bestLabel,
   forceBadge,
+  onSpeak,
+  onStopSpeak,
+  isSpeaking = false,
+  isSpeechSupported = true,
+  speakAriaLabel,
 }) {
   const { t } = useLanguage();
 
@@ -119,6 +125,15 @@ export default function MandiCard({
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
               {bestLabel || t.bestMandi}
             </span>
+          )}
+          {typeof onSpeak === "function" && (
+            <SpeakerButton
+              onSpeak={onSpeak}
+              onStop={onStopSpeak}
+              isSpeaking={isSpeaking}
+              isSupported={isSpeechSupported}
+              ariaLabel={speakAriaLabel || "Hear mandi price"}
+            />
           )}
         </div>
       </div>

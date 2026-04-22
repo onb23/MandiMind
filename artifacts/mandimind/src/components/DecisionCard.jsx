@@ -1,4 +1,5 @@
 import { useLanguage } from "../context/LanguageContext";
+import SpeakerButton from "./SpeakerButton";
 
 function getConfidence(score, t, penalty = 0, disallowHigh = false) {
   const bands = [t.low.toUpperCase(), t.medium.toUpperCase(), t.high.toUpperCase()];
@@ -41,6 +42,10 @@ export default function DecisionCard({
   riskExplanation = "",
   confidencePenalty = 0,
   disallowHighConfidence = false,
+  onSpeak,
+  onStopSpeak,
+  isSpeaking = false,
+  isSpeechSupported = true,
 }) {
   const { t } = useLanguage();
 
@@ -93,6 +98,7 @@ export default function DecisionCard({
 
   return (
     <div className={`${c.bg} rounded-2xl p-6 text-white shadow-xl ${c.glow}`}>
+      <div className="flex items-start justify-between gap-3">
       <div className="space-y-2">
         <p className="text-xs uppercase tracking-[0.12em] opacity-80">
           {t.recommendedAction}
@@ -109,6 +115,17 @@ export default function DecisionCard({
         >
           {c.desc}
         </p>
+      </div>
+      {typeof onSpeak === "function" && (
+        <SpeakerButton
+          onSpeak={onSpeak}
+          onStop={onStopSpeak}
+          isSpeaking={isSpeaking}
+          isSupported={isSpeechSupported}
+          ariaLabel="Hear recommendation"
+          className="border-white/25 bg-white/10 text-white hover:bg-white/20"
+        />
+      )}
       </div>
 
       <div className="mt-5 bg-white/15 rounded-xl py-2 px-3 text-center">
