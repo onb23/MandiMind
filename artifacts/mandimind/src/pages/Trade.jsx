@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchAvailableCrops, fetchAvailableMandis, getFreshnessMessage } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
 import { useLanguage } from "../context/LanguageContext";
+import { trackEvent } from "../lib/analytics";
 
 const COUNTRIES = [
   { id: "UAE", name: "UAE", multiplier: 1.8, cost: 6, transitDays: 7, realizationFactor: 0.9 },
@@ -138,7 +139,7 @@ function calculateTradeMetrics({ canCalculate, mandiPricePerKg, selectedCountry,
 }
 
 export default function Trade() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [cropList, setCropList] = useState([]);
   const [selectedCrop, setSelectedCrop] = useState("");
   const [cropLoading, setCropLoading] = useState(true);
@@ -151,6 +152,7 @@ export default function Trade() {
   const [tradeFreshnessDays, setTradeFreshnessDays] = useState(null);
   const [shareMessage, setShareMessage] = useState("");
   const inputSectionRef = useRef(null);
+  const lastTrackedTradeRef = useRef("");
   const hasLowMandiAvailability = selectedCrop && !loading && !error && mandis.length > 0 && mandis.length <= 2;
 
   useEffect(() => {
@@ -320,6 +322,24 @@ export default function Trade() {
         : t.tradeDecisionNotProfitable;
 
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
+
+  useEffect(() => {
+    if (!selectedCrop || !bestMandi?.mandi || !canCalculate) return;
+    const tradeKey = `${selectedCrop}|${bestMandi.mandi}|${country}|${safeQuantity}|${calculations.decision}`;
+    if (lastTrackedTradeRef.current === tradeKey) return;
+    lastTrackedTradeRef.current = tradeKey;
+    trackEvent("trade_profit_calculated", {
+      page: "/trade",
+      language,
+      crop: selectedCrop,
+      state: "Maharashtra",
+      mandi: bestMandi.mandi,
+      meta: {
+        destinationCountry: selectedCountry.name,
+        quantity: safeQuantity,
+      },
+    });
+  }, [bestMandi?.mandi, calculations.decision, canCalculate, country, language, safeQuantity, selectedCountry.name, selectedCrop]);
 
   async function handleShareTradeResult() {
     const shareText = `${t.tradeShareTitle}

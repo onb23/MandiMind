@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { getCropById } from "../data/mockPrices";
@@ -6,14 +6,16 @@ import { getDecision, getDecisionStrengthModel } from "../utils/decisionEngine";
 import { fetchPrices, fetchCompare } from "../utils/api";
 import { getMandiAvailabilityFromRecords } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
+import { trackEvent } from "../lib/analytics";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
 
 export default function Decision() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [shareMessage, setShareMessage] = useState("");
+  const lastTrackedRecommendationRef = useRef("");
 
   const cropId   = searchParams.get("crop")     || "onion";
   const mandi    = searchParams.get("mandi")    || "";
@@ -173,6 +175,21 @@ export default function Decision() {
         },
       }
     : localResult;
+
+  useEffect(() => {
+    if (!cropId || !mandi || !decisionResult?.decision) return;
+    const recommendationKey = `${cropId}|${mandi}|${stateVal}|${decisionResult.decision}`;
+    if (lastTrackedRecommendationRef.current === recommendationKey) return;
+    lastTrackedRecommendationRef.current = recommendationKey;
+    trackEvent("recommendation_generated", {
+      page: "/",
+      language,
+      crop: cropId,
+      state: stateVal,
+      mandi,
+      meta: { recommendation: decisionResult.decision },
+    });
+  }, [cropId, decisionResult?.decision, language, mandi, stateVal]);
 
   const formatPrice = (value) => (
     Number.isFinite(value) ? `₹${value.toLocaleString("en-IN")}` : t.dataUnavailable
