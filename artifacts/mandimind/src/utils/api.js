@@ -2,7 +2,7 @@
 // In development (vite dev): empty string → uses Vite proxy to localhost:8080 Express server.
 // In production (Cloudflare Pages build): uses the deployed Worker URL directly.
 
-export const API_BASE = "https://mandimind.omkarborade-11.workers.dev";
+export const API_BASE = "https://api.mandimind.tech";
 
 function hasRequiredParam(value) {
   return typeof value === "string" && value.trim().length > 0;
