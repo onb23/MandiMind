@@ -13,6 +13,7 @@
 export interface Env {
   DATA_GOV_API_KEY: string;
   RECENT_MANDI_KV?: KVNamespace;
+  ANALYTICS_KV?: KVNamespace;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -21,6 +22,23 @@ const RESOURCE_ID = "9ef84268-d588-465a-a308-a864a43d0070";
 const DATA_GOV_BASE = "https://api.data.gov.in/resource";
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const ALLOWED_ANALYTICS_ORIGINS = new Set([
+  "https://mandimind.tech",
+  "https://www.mandimind.tech",
+  "http://localhost:5173",
+]);
+
+const ALLOWED_EVENT_NAMES = new Set([
+  "home_search_submitted",
+  "compare_searched",
+  "recommendation_generated",
+  "trade_profit_calculated",
+  "language_changed",
+  "feedback_form_opened",
+  "feedback_form_submitted",
+  "api_error_seen",
+]);
 
 const CROP_MAP: Record<string, string> = {
   onion: "Onion",
@@ -562,16 +580,99 @@ function sampleCommodityValues(
   ].slice(0, sampleSize);
 }
 
-function json(body: unknown, status = 200): Response {
+function corsHeaders(origin: string | null = null): Record<string, string> {
+  const isAllowedOrigin = origin ? ALLOWED_ANALYTICS_ORIGINS.has(origin) : false;
+  return {
+    "Access-Control-Allow-Origin": isAllowedOrigin ? origin! : "*",
+    "Access-Control-Allow-Methods": isAllowedOrigin
+      ? "POST, OPTIONS"
+      : "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    ...(isAllowedOrigin ? { Vary: "Origin" } : {}),
+  };
+}
+
+function json(body: unknown, status = 200, origin: string | null = null): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      ...corsHeaders(origin),
     },
   });
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+interface AnalyticsEventPayload {
+  event: string;
+  page?: string;
+  language?: string;
+  crop?: string;
+  state?: string;
+  mandi?: string;
+  meta?: Record<string, unknown>;
+  ts: number;
+}
+
+function validateEventPayload(value: unknown): AnalyticsEventPayload | null {
+  if (!isPlainObject(value)) return null;
+
+  const event = value.event;
+  if (typeof event !== "string" || !ALLOWED_EVENT_NAMES.has(event)) return null;
+
+  const readString = (key: string, maxLen: number): string | undefined => {
+    const v = value[key];
+    if (v === undefined) return undefined;
+    if (typeof v !== "string" || v.length > maxLen) return undefined;
+    return v;
+  };
+
+  const page = readString("page", 100);
+  if (value.page !== undefined && page === undefined) return null;
+
+  const language = readString("language", 10);
+  if (value.language !== undefined && language === undefined) return null;
+
+  const crop = readString("crop", 50);
+  if (value.crop !== undefined && crop === undefined) return null;
+
+  const state = readString("state", 50);
+  if (value.state !== undefined && state === undefined) return null;
+
+  const mandi = readString("mandi", 80);
+  if (value.mandi !== undefined && mandi === undefined) return null;
+
+  const meta = value.meta;
+  if (meta !== undefined && !isPlainObject(meta)) return null;
+
+  const rawTs = value.ts;
+  const ts = typeof rawTs === "number" && Number.isFinite(rawTs) ? rawTs : Date.now();
+
+  return {
+    event,
+    page,
+    language,
+    crop,
+    state,
+    mandi,
+    meta: meta as Record<string, unknown> | undefined,
+    ts,
+  };
+}
+
+async function incrementCounter(
+  kv: KVNamespace,
+  dateKey: string,
+  eventName: string,
+): Promise<void> {
+  const key = `daily:${dateKey}:${eventName}`;
+  const currentRaw = await kv.get(key);
+  const currentValue = Number.parseInt(currentRaw ?? "0", 10);
+  const next = Number.isFinite(currentValue) ? currentValue + 1 : 1;
+  await kv.put(key, String(next));
 }
 
 function buildCompareResponseFromRows(
@@ -1660,6 +1761,63 @@ async function handleRecommendation(
   }
 }
 
+async function handleEvents(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const origin = request.headers.get("Origin");
+  if (!origin || !ALLOWED_ANALYTICS_ORIGINS.has(origin)) {
+    return json({ error: "Origin not allowed" }, 403, origin);
+  }
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders(origin),
+    });
+  }
+
+  if (request.method !== "POST") {
+    return json({ error: "Method not allowed" }, 405, origin);
+  }
+
+  if (!env.ANALYTICS_KV) {
+    return json({ error: "Analytics storage unavailable" }, 500, origin);
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400, origin);
+  }
+
+  const payload = validateEventPayload(parsedBody);
+  if (!payload) {
+    return json({ error: "Invalid event payload" }, 400, origin);
+  }
+
+  const eventId = crypto.randomUUID();
+  const eventRecord = {
+    ...payload,
+    origin,
+    ipCountry: request.cf?.country ?? null,
+    userAgent: request.headers.get("User-Agent") ?? null,
+    receivedAt: Date.now(),
+  };
+
+  const ts = Number.isFinite(payload.ts) ? payload.ts : Date.now();
+  const dailyDate = new Date(ts).toISOString().slice(0, 10);
+
+  const writes = Promise.all([
+    env.ANALYTICS_KV.put(
+      `analytics:${ts}:${eventId}`,
+      JSON.stringify(eventRecord),
+    ),
+    incrementCounter(env.ANALYTICS_KV, dailyDate, payload.event),
+  ]).catch(() => undefined);
+
+  ctx.waitUntil(writes);
+  return json({ ok: true }, 200, origin);
+}
+
 async function handleHealth(): Promise<Response> {
   return json({
     status: "ok",
@@ -1751,7 +1909,7 @@ async function handleDebugMatch(
 // ─── Main fetch handler ───────────────────────────────────────────────────────
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/debug") {
@@ -1774,15 +1932,15 @@ export default {
     const path = url.pathname;
     const params = url.searchParams;
 
+    if (path === "/api/events") {
+      return handleEvents(request, env, ctx);
+    }
+
     // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        },
+        headers: corsHeaders(),
       });
     }
 
