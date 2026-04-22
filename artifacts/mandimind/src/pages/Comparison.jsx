@@ -4,6 +4,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
 import { trackEvent } from "../lib/analytics";
+import { useSpeechAssistant } from "../hooks/useSpeechAssistant";
 
 function ComparisonSkeleton() {
   return (
@@ -33,6 +34,7 @@ function ComparisonSkeleton() {
 
 export default function Comparison() {
   const { t, language } = useLanguage();
+  const { speakText, stopSpeaking, speaking, isSupported, selectedVoiceLang } = useSpeechAssistant();
   const [searchParams] = useSearchParams();
   const initCrop = searchParams.get("crop") || "onion";
   const [selectedCrop, setSelectedCrop] = useState(initCrop);

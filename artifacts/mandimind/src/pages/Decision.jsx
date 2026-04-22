@@ -7,11 +7,13 @@ import { fetchPrices, fetchCompare } from "../utils/api";
 import { getMandiAvailabilityFromRecords } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
 import { trackEvent } from "../lib/analytics";
+import { useSpeechAssistant } from "../hooks/useSpeechAssistant";
 import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
 
 export default function Decision() {
   const { t, language } = useLanguage();
+  const { speakText, stopSpeaking, speaking, isSupported, selectedVoiceLang } = useSpeechAssistant();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [shareMessage, setShareMessage] = useState("");
