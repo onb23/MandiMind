@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
+import SpeakerButton from "../components/SpeakerButton";
+import { useSpeechAssistant } from "../utils/speechSynthesis";
 import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
 
@@ -31,7 +33,8 @@ function ComparisonSkeleton() {
 }
 
 export default function Comparison() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const { speakText, stopSpeaking, speaking, isSupported, selectedVoiceLang } = useSpeechAssistant();
   const [searchParams] = useSearchParams();
   const initCrop = searchParams.get("crop") || "onion";
   const [selectedCrop, setSelectedCrop] = useState(initCrop);
@@ -154,6 +157,116 @@ export default function Comparison() {
       ? "bg-amber-50 text-amber-700 border border-amber-100"
       : "bg-rose-50 text-rose-700 border border-rose-100";
 
+  const spokenLang = (selectedVoiceLang || language || "mr").toLowerCase().startsWith("mr")
+    ? "mr"
+    : (selectedVoiceLang || language || "mr").toLowerCase().startsWith("hi")
+      ? "hi"
+      : "en";
+
+  const speakByLang = ({ mr, hi, en }) => {
+    if (spokenLang === "hi") return hi;
+    if (spokenLang === "en") return en;
+    return mr;
+  };
+
+  const buildContextSpeech = () => {
+    if (compareMode === "latest") {
+      return speakByLang({
+        mr: `${selectedCropName} साठी मागील काही दिवसांतील उपलब्ध भाव दाखवत आहोत.`,
+        hi: `${selectedCropName} के लिए पिछले कुछ दिनों के उपलब्ध भाव दिखा रहे हैं।`,
+        en: `Showing latest available prices from recent days for ${selectedCropName}.`,
+      });
+    }
+
+    return speakByLang({
+      mr: `${selectedCropName} साठी महाराष्ट्र मधील सर्वोत्तम मंडी भाव दाखवत आहोत.`,
+      hi: `${selectedCropName} के लिए महाराष्ट्र में सबसे अच्छे मंडी भाव दिखा रहे हैं।`,
+      en: `Showing best mandi prices for ${selectedCropName} in Maharashtra.`,
+    });
+  };
+
+  const buildFreshnessSpeech = () => {
+    if (isTodayDataAvailable) {
+      return speakByLang({
+        mr: "आजचा ताजा डेटा उपलब्ध आहे.",
+        hi: "आज का ताज़ा डेटा उपलब्ध है।",
+        en: "Fresh data for today is available.",
+      });
+    }
+
+    if (hasRecentFallbackData) {
+      return speakByLang({
+        mr: "आजचा डेटा उपलब्ध नाही. शेवटचा उपलब्ध डेटा दाखवत आहोत.",
+        hi: "आज का डेटा उपलब्ध नहीं है। आखिरी उपलब्ध डेटा दिखा रहे हैं।",
+        en: "Today's data is unavailable. Showing the latest available data.",
+      });
+    }
+
+    return speakByLang({
+      mr: "सध्या डेटा उपलब्ध नाही. कृपया नंतर पुन्हा तपासा.",
+      hi: "फिलहाल डेटा उपलब्ध नहीं है। कृपया बाद में फिर जांचें।",
+      en: "Data is currently unavailable. Please check again later.",
+    });
+  };
+
+  const buildInsightSpeech = () => {
+    if (insightType === "sell") {
+      return speakByLang({
+        mr: `आत्ता विक्रीसाठी चांगला भाव आहे. ${bestMandi?.mandi || "ही"} मंडी योग्य आहे.`,
+        hi: `अभी बेचने के लिए भाव अच्छा है। ${bestMandi?.mandi || "यह"} मंडी सही है।`,
+        en: `Price is good to sell now. ${bestMandi?.mandi || "This"} mandi is a good choice.`,
+      });
+    }
+
+    if (insightType === "wait") {
+      return speakByLang({
+        mr: "आत्ता थांबा. सध्याचा भाव कमी आहे.",
+        hi: "अभी रुकिए। मौजूदा भाव कम है।",
+        en: "Wait for now. Current price is low.",
+      });
+    }
+
+    return speakByLang({
+      mr: "दुसरी मंडी तपासा. चांगला भाव दुसरीकडे मिळू शकतो.",
+      hi: "दूसरी मंडी जांचें। बेहतर भाव कहीं और मिल सकता है।",
+      en: "Check another mandi. Better price may be available elsewhere.",
+    });
+  };
+
+  const buildBestMandiSpeech = () => {
+    if (!bestMandi || !Number.isFinite(bestMandi.modePrice)) {
+      return speakByLang({
+        mr: "या निवडीसाठी डेटा उपलब्ध नाही.",
+        hi: "इस चयन के लिए डेटा उपलब्ध नहीं है।",
+        en: "No data is available for this selection.",
+      });
+    }
+
+    const priceValue = Math.round(bestMandi.modePrice).toLocaleString("en-IN");
+    return speakByLang({
+      mr: `${bestMandi.mandi} मंडी सर्वोत्तम आहे. भाव आहे ${priceValue} रुपये. इथे विकायला चांगले आहे.`,
+      hi: `${bestMandi.mandi} मंडी सबसे बेहतर है। भाव ${priceValue} रुपये है। यहां बेचना सही रहेगा।`,
+      en: `${bestMandi.mandi} mandi is best. Price is ${priceValue} rupees. Good place to sell.`,
+    });
+  };
+
+  const buildCardSpeech = (item) => {
+    if (!item || !Number.isFinite(item.modePrice)) {
+      return speakByLang({
+        mr: "या मंडीसाठी भाव उपलब्ध नाही.",
+        hi: "इस मंडी के लिए भाव उपलब्ध नहीं है।",
+        en: "Price is unavailable for this mandi.",
+      });
+    }
+
+    return speakByLang({
+      mr: `${item.mandi} मध्ये भाव आहे ${Math.round(item.modePrice).toLocaleString("en-IN")} रुपये.`,
+      hi: `${item.mandi} में भाव ${Math.round(item.modePrice).toLocaleString("en-IN")} रुपये है।`,
+      en: `Price in ${item.mandi} is ${Math.round(item.modePrice).toLocaleString("en-IN")} rupees.`,
+    });
+  };
+
+
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div className="px-4 pt-5 pb-4">
@@ -258,9 +371,19 @@ export default function Comparison() {
               <p className="text-sm font-semibold text-slate-800" style={{ fontFamily: "Manrope, sans-serif" }}>
                 {selectedCropName} · Maharashtra
               </p>
+              <div className="flex items-center gap-2">
               <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold tracking-wide shrink-0 ${contextBadgeClass}`}>
                 {contextBadge}
               </span>
+                <SpeakerButton
+                  onSpeak={() => speakText(buildContextSpeech())}
+                  onStop={stopSpeaking}
+                  isSpeaking={speaking}
+                  isSupported={isSupported}
+                  ariaLabel="Hear compare summary"
+                  className="h-9 w-9"
+                />
+              </div>
             </div>
             <p className="text-xs text-slate-600 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {contextLine}
@@ -293,6 +416,15 @@ export default function Comparison() {
               आजचा डेटा उपलब्ध नाही
             </p>
             <p className="text-xs text-slate-600 mt-1">कृपया नंतर पुन्हा तपासा</p>
+            <div className="mt-3 flex justify-center">
+              <SpeakerButton
+                onSpeak={() => speakText(buildFreshnessSpeech())}
+                onStop={stopSpeaking}
+                isSpeaking={speaking}
+                isSupported={isSupported}
+                ariaLabel="Hear no-data status"
+              />
+            </div>
           </div>
         )}
 
@@ -300,15 +432,27 @@ export default function Comparison() {
           <>
             {insightType && (
               <div className={`rounded-2xl border p-3 mb-3 ${insightStyles[insightType]}`}>
-                <p className="text-[11px] font-semibold mb-1 uppercase tracking-wide" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  {t.simpleInsight}
-                </p>
-                <p className="text-sm font-semibold" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  {insightTexts[insightType]}
-                </p>
-                <p className="text-xs mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  {t.comparisonInsightBasis.replace("{today}", avgTodayPrice.toLocaleString("en-IN")).replace("{recent}", avgRecentPrice.toLocaleString("en-IN"))}
-                </p>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold mb-1 uppercase tracking-wide" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                      {t.simpleInsight}
+                    </p>
+                    <p className="text-sm font-semibold" style={{ fontFamily: "Manrope, sans-serif" }}>
+                      {insightTexts[insightType]}
+                    </p>
+                    <p className="text-xs mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                      {t.comparisonInsightBasis.replace("{today}", avgTodayPrice.toLocaleString("en-IN")).replace("{recent}", avgRecentPrice.toLocaleString("en-IN"))}
+                    </p>
+                  </div>
+                  <SpeakerButton
+                    onSpeak={() => speakText(buildInsightSpeech())}
+                    onStop={stopSpeaking}
+                    isSpeaking={speaking}
+                    isSupported={isSupported}
+                    ariaLabel="Hear recommendation"
+                    className="h-9 w-9"
+                  />
+                </div>
               </div>
             )}
 
@@ -320,6 +464,14 @@ export default function Comparison() {
                 <span className="text-[#ffd17a] font-bold text-base text-right" style={{ fontFamily: "Manrope, sans-serif" }}>
                   {bestMandi.mandi} — {bestMandi.modePrice > 0 ? `₹${bestMandi.modePrice.toLocaleString("en-IN")}` : "—"}
                 </span>
+                <SpeakerButton
+                  onSpeak={() => speakText(buildBestMandiSpeech())}
+                  onStop={stopSpeaking}
+                  isSpeaking={speaking}
+                  isSupported={isSupported}
+                  ariaLabel="Hear best mandi recommendation"
+                  className="h-9 w-9 border-white/20 bg-white/10 text-white hover:bg-white/20"
+                />
               </div>
             )}
 
@@ -345,6 +497,11 @@ export default function Comparison() {
                       isBest={idx === 0}
                       rank={idx + 1}
                       bestLabel={idx === 0 ? bestLabel : ""}
+                      onSpeak={idx === 0 ? () => speakText(buildCardSpeech(item)) : undefined}
+                      onStopSpeak={stopSpeaking}
+                      isSpeaking={speaking && idx === 0}
+                      isSpeechSupported={isSupported}
+                      speakAriaLabel={idx === 0 ? "Hear top mandi price" : undefined}
                     />
                     </div>
                   ))}

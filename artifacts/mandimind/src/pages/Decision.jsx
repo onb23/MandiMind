@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
+import SpeakerButton from "../components/SpeakerButton";
+import { useSpeechAssistant } from "../utils/speechSynthesis";
 import { getCropById } from "../data/mockPrices";
 import { getDecision, getDecisionStrengthModel } from "../utils/decisionEngine";
 import { fetchPrices, fetchCompare } from "../utils/api";
@@ -10,7 +12,8 @@ import DecisionCard from "../components/DecisionCard";
 import TrendChart from "../components/TrendChart";
 
 export default function Decision() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const { speakText, stopSpeaking, speaking, isSupported, selectedVoiceLang } = useSpeechAssistant();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [shareMessage, setShareMessage] = useState("");
@@ -254,6 +257,64 @@ export default function Decision() {
     });
   })();
 
+
+
+  const spokenLang = (selectedVoiceLang || language || "mr").toLowerCase().startsWith("mr")
+    ? "mr"
+    : (selectedVoiceLang || language || "mr").toLowerCase().startsWith("hi")
+      ? "hi"
+      : "en";
+
+  const buildRecommendationSpeech = () => {
+    const targetMandi = bestOpportunity?.mandi || mandi;
+    if (decisionResult.decision === "SELL") {
+      if (spokenLang === "hi") return `अभी बेचने के लिए भाव अच्छा है। ${targetMandi} मंडी सही है।`;
+      if (spokenLang === "en") return `Price is good to sell now. ${targetMandi} mandi is a good choice.`;
+      return `आत्ता विक्रीसाठी चांगला भाव आहे. ${targetMandi} मंडी योग्य आहे.`;
+    }
+
+    if (decisionResult.decision === "WAIT" || decisionResult.decision === "HOLD") {
+      if (spokenLang === "hi") return "अभी रुकिए। मौजूदा भाव कम है।";
+      if (spokenLang === "en") return "Wait for now. Current price is low.";
+      return "आत्ता थांबा. सध्याचा भाव कमी आहे.";
+    }
+
+    if (spokenLang === "hi") return "दूसरी मंडी भी जांचें। बेहतर भाव कहीं और मिल सकता है।";
+    if (spokenLang === "en") return "Check another mandi too. Better price may be available elsewhere.";
+    return "दुसरी मंडी तपासा. चांगला भाव दुसरीकडे मिळू शकतो.";
+  };
+
+  const buildStatusSpeech = () => {
+    if (usesTodayData) {
+      if (spokenLang === "hi") return "आज का ताज़ा डेटा उपलब्ध है।";
+      if (spokenLang === "en") return "Fresh data for today is available.";
+      return "आजचा ताजा डेटा उपलब्ध आहे.";
+    }
+
+    if (usesFallbackData) {
+      if (spokenLang === "hi") return "आज का डेटा उपलब्ध नहीं है। आखिरी उपलब्ध डेटा दिखा रहे हैं।";
+      if (spokenLang === "en") return "Today's data is unavailable. Showing the latest available data.";
+      return "आजचा डेटा उपलब्ध नाही. शेवटचा उपलब्ध डेटा दाखवत आहोत.";
+    }
+
+    if (spokenLang === "hi") return "फिलहाल डेटा उपलब्ध नहीं है। कृपया बाद में फिर जांचें।";
+    if (spokenLang === "en") return "Data is currently unavailable. Please check again later.";
+    return "सध्या डेटा उपलब्ध नाही. कृपया नंतर पुन्हा तपासा.";
+  };
+
+  const buildBestMandiSpeech = () => {
+    if (!bestOpportunity || !Number.isFinite(bestOpportunity.todayPrice)) {
+      if (spokenLang === "hi") return "इस फसल के लिए अभी डेटा उपलब्ध नहीं है।";
+      if (spokenLang === "en") return "No mandi data is available for this crop right now.";
+      return "या निवडीसाठी डेटा उपलब्ध नाही.";
+    }
+
+    const priceValue = Math.round(bestOpportunity.todayPrice).toLocaleString("en-IN");
+    if (spokenLang === "hi") return `${bestOpportunity.mandi} मंडी सबसे बेहतर है। भाव ${priceValue} रुपये है। यहाँ बेच सकते हैं।`;
+    if (spokenLang === "en") return `${bestOpportunity.mandi} mandi is best now. Price is ${priceValue} rupees. Good place to sell.`;
+    return `${bestOpportunity.mandi} मंडी सर्वोत्तम आहे. भाव आहे ${priceValue} रुपये. इथे विकायला चांगले आहे.`;
+  };
+
   async function handleShareDecision() {
     const shareText = `${t.shareTitle}
 
@@ -304,29 +365,57 @@ https://mandimind.pages.dev/`;
           riskExplanation={decisionStrength.riskExplanation}
           confidencePenalty={usesFallbackData ? 1 : 0}
           disallowHighConfidence={usesFallbackData}
+          onSpeak={() => speakText(buildRecommendationSpeech())}
+          onStopSpeak={stopSpeaking}
+          isSpeaking={speaking}
+          isSpeechSupported={isSupported}
         />
 
         {/* Data source status badge */}
         {usesTodayData ? (
-          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+          <div className="flex items-center justify-between gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
             <span className="text-green-500">✓</span>
             <p className="text-xs text-green-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.liveDataAgmarknet}
             </p>
+            <SpeakerButton
+              onSpeak={() => speakText(buildStatusSpeech())}
+              onStop={stopSpeaking}
+              isSpeaking={speaking}
+              isSupported={isSupported}
+              ariaLabel="Hear data status"
+              className="h-9 w-9"
+            />
           </div>
         ) : usesFallbackData ? (
-          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+          <div className="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
             <span className="text-amber-500">⚠</span>
             <p className="text-xs text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.latestAvailableDataAgmarknet}
             </p>
+            <SpeakerButton
+              onSpeak={() => speakText(buildStatusSpeech())}
+              onStop={stopSpeaking}
+              isSpeaking={speaking}
+              isSupported={isSupported}
+              ariaLabel="Hear data status"
+              className="h-9 w-9"
+            />
           </div>
         ) : (
-          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+          <div className="flex items-center justify-between gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
             <span className="text-red-500">✕</span>
             <p className="text-xs text-red-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.dataUnavailable}
             </p>
+            <SpeakerButton
+              onSpeak={() => speakText(buildStatusSpeech())}
+              onStop={stopSpeaking}
+              isSpeaking={speaking}
+              isSupported={isSupported}
+              ariaLabel="Hear data status"
+              className="h-9 w-9"
+            />
           </div>
         )}
 
@@ -416,11 +505,21 @@ https://mandimind.pages.dev/`;
           }`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
             {decisionResult.estimatedImpact?.summary || t.estimatedImpactDefault}
           </p>
-          <div className="pt-2 border-t border-gray-100">
-            <p className="text-xs font-bold uppercase text-[#004c22] mb-1">{t.bestOpportunity}</p>
-            <p className="text-sm text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {bestOpportunityText}
-            </p>
+          <div className="pt-2 border-t border-gray-100 flex items-start justify-between gap-2">
+            <div>
+              <p className="text-xs font-bold uppercase text-[#004c22] mb-1">{t.bestOpportunity}</p>
+              <p className="text-sm text-gray-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {bestOpportunityText}
+              </p>
+            </div>
+            <SpeakerButton
+              onSpeak={() => speakText(buildBestMandiSpeech())}
+              onStop={stopSpeaking}
+              isSpeaking={speaking}
+              isSupported={isSupported}
+              ariaLabel="Hear best mandi recommendation"
+              className="h-9 w-9"
+            />
           </div>
         </div>
 
