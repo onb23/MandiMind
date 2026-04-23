@@ -103,6 +103,7 @@ export default function Comparison() {
 
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
   const mandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
+  const apiStatus = typeof compareData?.status === "string" ? compareData.status : "";
   const backendRanked = Array.isArray(compareData?.rankedMandis) ? compareData.rankedMandis : [];
   const backendFallbackOld = Array.isArray(compareData?.fallbackOldMandis)
     ? compareData.fallbackOldMandis
@@ -122,10 +123,10 @@ export default function Comparison() {
     mandi: item?.mandi || "Unknown",
     modePrice: Number.isFinite(item?.todayPrice)
       ? item.todayPrice
-      : Number.isFinite(item?.price)
-        ? item.price
-        : Number.isFinite(item?.avgPrice)
-          ? item.avgPrice
+      : Number.isFinite(item?.avgPrice)
+        ? item.avgPrice
+        : Number.isFinite(item?.price)
+          ? item.price
         : null,
     avgPrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
     modeFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
@@ -218,26 +219,33 @@ export default function Comparison() {
   const hasFreshOrRecent = freshCount > 0 || recentCount > 0;
   const hasBackendRanked = normalizedBackendRanked.length > 0;
   const hasMandis = normalizedMandis.length > 0;
+  const hasRecentStatusMandis = apiStatus === "recent_has_data" && mandis.length > 0;
   const hasBestAvailable = hasFreshOrRecent
     || hasBackendRanked
     || (backendFallbackOld.length || 0) > 0
-    || hasMandis;
+    || hasMandis
+    || hasRecentStatusMandis;
   const hasRankedForBest = rankedMandis.length > 0;
   const hasOldRows = normalizedFallback.length > 0;
   const isTodayMode = compareMode === "today";
   const isBestAvailableMode = compareMode === "latest";
   const shouldRenderRanked = isTodayMode
     ? hasToday && rankedMandis.length > 0
-    : hasRankedForBest;
+    : hasRankedForBest || hasRecentStatusMandis;
   const shouldRenderFallback = isBestAvailableMode && hasOldRows;
   const maxFreshnessDays = rankedMandis.reduce((max, item) => {
     if (!Number.isFinite(item.modeFreshnessDays)) return max;
     return Math.max(max, item.modeFreshnessDays);
   }, 0);
+  const effectiveFreshnessDays = Number.isFinite(compareData?.freshnessDays)
+    ? compareData.freshnessDays
+    : maxFreshnessDays;
   const hasNonTodayDataInRanked = rankedMandis.some((item) => Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays > 0);
-  const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailable && (hasRankedForBest || shouldRenderFallback);
+  const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailable && (hasRankedForBest || hasRecentStatusMandis || shouldRenderFallback);
   const showOldFallbackMessage = isBestAvailableMode && hasBestAvailable && !hasRankedForBest && shouldRenderFallback;
-  const showNoDataState = isTodayMode ? !hasToday : !hasBestAvailable;
+  const showNoDataState = isTodayMode
+    ? !hasToday
+    : !hasBestAvailable && !hasRecentStatusMandis;
   const hasRecentOrFreshBestAvailable = isBestAvailableMode && (hasFreshOrRecent || hasRankedForBest);
   const getModeMessage = () => {
     if (isTodayMode && !hasToday) {
@@ -489,11 +497,18 @@ export default function Comparison() {
         {!loading && !error && showBestAvailableDataMessage && (
           <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-center mb-3">
             <p className="text-blue-900 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {modeMessage || `Latest available (${maxFreshnessDays} ${maxFreshnessDays === 1 ? "day" : "days"} old)`}
+              {modeMessage || (Number.isFinite(effectiveFreshnessDays)
+                ? `Latest available (${effectiveFreshnessDays} ${effectiveFreshnessDays === 1 ? "day" : "days"} old)`
+                : "Latest available data")}
             </p>
             {latestAvailableDate && (
               <p className="text-xs text-blue-800 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                 Latest available date: {latestAvailableDate}
+              </p>
+            )}
+            {(Number.isFinite(effectiveFreshnessDays) || lastUpdated) && (
+              <p className="text-xs text-blue-800 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {`Freshness: ${Number.isFinite(effectiveFreshnessDays) ? `${effectiveFreshnessDays} day${effectiveFreshnessDays === 1 ? "" : "s"} old` : "latest available"}${lastUpdated ? ` · Last updated: ${lastUpdated}` : ""}`}
               </p>
             )}
             {isBestAvailableMode && hasNonTodayDataInRanked && (

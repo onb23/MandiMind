@@ -329,24 +329,36 @@ export async function fetchAvailableMandis(cropId, state = "Maharashtra", option
       latestAvailableRow: null,
       todayOption: { isUsable: false, price: null, date: null, freshnessDays: null },
       latestOption: {
-        isUsable: Number.isFinite(item?.todayPrice),
-        price: Number.isFinite(item?.todayPrice) ? item.todayPrice : null,
+        isUsable: Number.isFinite(item?.todayPrice) || Number.isFinite(item?.avgPrice),
+        price: Number.isFinite(item?.todayPrice)
+          ? item.todayPrice
+          : Number.isFinite(item?.avgPrice)
+            ? item.avgPrice
+            : null,
         date: item?.lastUpdated ?? null,
         freshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
       },
-      bucket: Number.isFinite(item?.todayPrice) ? "latest_available" : "unavailable",
-      isUsable: Number.isFinite(item?.todayPrice),
+      bucket: (Number.isFinite(item?.todayPrice) || Number.isFinite(item?.avgPrice)) ? "latest_available" : "unavailable",
+      isUsable: Number.isFinite(item?.todayPrice) || Number.isFinite(item?.avgPrice),
       usedDate: item?.lastUpdated ?? null,
       freshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
-      selectedPrice: Number.isFinite(item?.todayPrice) ? item.todayPrice : null,
+      selectedPrice: Number.isFinite(item?.todayPrice)
+        ? item.todayPrice
+        : Number.isFinite(item?.avgPrice)
+          ? item.avgPrice
+          : null,
       todayPrice: null,
       currentPrice: null,
-      latestPrice: Number.isFinite(item?.todayPrice) ? item.todayPrice : null,
+      latestPrice: Number.isFinite(item?.todayPrice)
+        ? item.todayPrice
+        : Number.isFinite(item?.avgPrice)
+          ? item.avgPrice
+          : null,
       todayDate: null,
       latestDate: item?.lastUpdated ?? null,
       latestFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
       lastUpdated: item?.lastUpdated ?? null,
-      availability: Number.isFinite(item?.todayPrice) ? "fallback_recent" : "unavailable",
+      availability: (Number.isFinite(item?.todayPrice) || Number.isFinite(item?.avgPrice)) ? "fallback_recent" : "unavailable",
       recentHistoryCount: 0,
       recentAveragePrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
       compareTodayPrice: Number.isFinite(item?.todayPrice) ? item.todayPrice : null,
@@ -392,10 +404,16 @@ export function getMandisForPriceMode(mandis = [], mode = PRICE_MODE.TODAY, opti
 
       const todayModePrice = Number.isFinite(item?.todayPrice)
         ? item.todayPrice
-        : modeRow?.price ?? null;
-      const recentModePrice = Number.isFinite(item?.avgPrice)
-        ? item.avgPrice
-        : modeRow?.price ?? null;
+        : Number.isFinite(item?.latestPrice)
+          ? item.latestPrice
+          : modeRow?.price ?? null;
+      const recentModePrice = Number.isFinite(item?.todayPrice)
+        ? item.todayPrice
+        : Number.isFinite(item?.avgPrice)
+          ? item.avgPrice
+          : Number.isFinite(item?.latestPrice)
+            ? item.latestPrice
+            : modeRow?.price ?? null;
       const modePrice = isTodayMode ? todayModePrice : recentModePrice;
 
       return {
