@@ -35,6 +35,18 @@ export default function Home() {
     return getMandisForPriceMode(mandiOptions, priceType);
   }, [mandiOptions, priceType]);
   const hasVisibleMandis = visibleMandis.length > 0;
+  const hasAnyUsableMandis = mandiOptions.some((item) => item?.isUsable);
+  const hasTodayMandis = mandiOptions.some((item) => Boolean(item?.todayRow));
+  const hasRecentMandis = mandiOptions.some((item) => {
+    if (!item?.latestAvailableRow) return false;
+    return Number.isFinite(item?.latestFreshnessDays) && item.latestFreshnessDays >= 1 && item.latestFreshnessDays <= 3;
+  });
+  const hasOlderFallbackMandis = mandiOptions.some((item) => {
+    if (!item?.latestAvailableRow) return false;
+    return Number.isFinite(item?.latestFreshnessDays) && item.latestFreshnessDays > 3;
+  });
+  const isTodayMode = priceType === "today";
+  const isRecentMode = priceType === "latest";
   const hasLowMandiAvailability = selectedCrop && !mandiLoading && !mandiError && mandiOptions.length > 0 && mandiOptions.length <= 2;
   const selectedRecentDate = useMemo(() => {
     if (priceType !== "latest") return null;
@@ -42,11 +54,31 @@ export default function Home() {
     if (selected?.latestOption?.date) return selected.latestOption.date;
     return visibleMandis[0]?.modeDate || null;
   }, [mandiOptions, selectedMandi, priceType, visibleMandis]);
-  const showTodayUpdatingNote = priceType === "today";
+  const showTodayUpdatingNote = isTodayMode;
   const showRecentInfoNote = selectedCrop
     && !mandiLoading
     && !mandiError
-    && priceType === "latest";
+    && isRecentMode;
+
+  const todayModeEmptyState = selectedCrop && !mandiLoading && !mandiError && isTodayMode && !hasTodayMandis;
+  const recentModeEmptyState = selectedCrop && !mandiLoading && !mandiError && isRecentMode && !hasAnyUsableMandis;
+
+  const modeAvailabilityBanner = useMemo(() => {
+    if (!selectedCrop || mandiLoading || mandiError) return "";
+    if (isTodayMode && !hasTodayMandis) {
+      return t.todayLiveDataUnavailable;
+    }
+    if (isRecentMode && hasRecentMandis && !hasTodayMandis) {
+      return t.recentModeUsingLatestAvailable;
+    }
+    if (isRecentMode && !hasRecentMandis && hasOlderFallbackMandis) {
+      return t.recentModeUsingOlderFallback;
+    }
+    if (!hasAnyUsableMandis) {
+      return t.noUsableDataForSelection;
+    }
+    return "";
+  }, [selectedCrop, mandiLoading, mandiError, isTodayMode, isRecentMode, hasTodayMandis, hasRecentMandis, hasOlderFallbackMandis, hasAnyUsableMandis, t]);
 
   const handleCropChange = (cropId) => {
     setSelectedCrop(cropId);
@@ -298,7 +330,14 @@ export default function Home() {
               )}
             </div>
           )}
-          {selectedCrop && !mandiLoading && !mandiError && !(showTodayUpdatingNote || showRecentInfoNote) && (
+          {selectedCrop && !mandiLoading && !mandiError && modeAvailabilityBanner && (
+            <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-xs text-amber-800" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                {modeAvailabilityBanner}
+              </p>
+            </div>
+          )}
+          {selectedCrop && !mandiLoading && !mandiError && !modeAvailabilityBanner && !(showTodayUpdatingNote || showRecentInfoNote) && (
             <p className="mb-2 text-xs text-blue-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {getFreshnessMessage(mandiFreshnessDays, t)}
             </p>
@@ -320,9 +359,9 @@ export default function Home() {
               {selectedCrop
                 ? (mandiLoading
                   ? t.loadingLiveMandis
-                  : hasVisibleMandis
-                    ? t.selectMandi
-                    : t.noUsableMandiDataForCrop)
+                  : (hasVisibleMandis
+                    ? (isRecentMode ? t.selectMandiRecentMode : t.selectMandi)
+                    : (isRecentMode ? t.noUsableDataForSelection : t.noUsableMandiDataForCrop)))
                 : t.selectCropFirst}
             </option>
             {visibleMandis.map((item) => (
@@ -334,10 +373,10 @@ export default function Home() {
           {selectedCrop && !mandiLoading && !mandiError && !hasVisibleMandis && (
             <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
               <p className="text-xs text-amber-800 font-semibold" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {t.noMandiDropdownDisabled}
+                {isTodayMode ? t.noMandiDropdownDisabled : t.noUsableDataForSelection}
               </p>
               <p className="text-xs text-amber-700" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {t.noMandiGuidance}
+                {isTodayMode ? t.noMandiGuidance : t.noMandiLast3Days}
               </p>
             </div>
           )}
@@ -348,9 +387,14 @@ export default function Home() {
               </p>
             </div>
           )}
-          {selectedCrop && !mandiLoading && !mandiError && !hasVisibleMandis && (
+          {todayModeEmptyState && (
             <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {priceType === "today" ? t.noMandiTodaySwitchToLatest : t.noMandiLast3Days}
+              {t.todayLiveDataUnavailable}
+            </p>
+          )}
+          {recentModeEmptyState && (
+            <p className="text-xs text-amber-700 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              {t.noUsableDataForSelection}
             </p>
           )}
           {hasLowMandiAvailability && (
@@ -370,10 +414,10 @@ export default function Home() {
               mandi: selectedMandi,
             });
             navigate(
-              `/input?crop=${selectedCrop}&mandi=${encodeURIComponent(selectedMandi)}&state=Maharashtra`
+              `/input?crop=${selectedCrop}&mandi=${encodeURIComponent(selectedMandi)}&state=Maharashtra&priceMode=${priceType}`
             );
           }}
-          disabled={!selectedCrop || !selectedMandi || !hasVisibleMandis || Boolean(mandiError) || mandiLoading}
+          disabled={!selectedCrop || !selectedMandi || Boolean(mandiError) || mandiLoading}
           className="w-full bg-[#feb234] text-[#1e1c10] font-bold text-lg py-4 rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
           style={{ fontFamily: "Manrope, sans-serif", minHeight: "56px" }}
         >
