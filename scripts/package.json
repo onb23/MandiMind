@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "cloudflare:api-guard": "tsx ./src/cloudflare-api-challenge-guard.ts --dry-run"
   },
   "devDependencies": {
     "@types/node": "catalog:",
