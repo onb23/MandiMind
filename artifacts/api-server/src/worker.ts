@@ -19,6 +19,7 @@ interface KVNamespace {
 export interface Env {
   DATA_GOV_API_KEY: string;
   MANDIMIND_CACHE?: KVNamespace;
+  ANALYTICS_KV?: KVNamespace;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -28,6 +29,21 @@ const DATA_GOV_BASE = "https://api.data.gov.in/resource";
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
 const KV_CACHE_TTL_SECONDS = 3 * 24 * 60 * 60; // 3 days
 const trendCache = new Map<string, { data: unknown; ts: number }>();
+const ALLOWED_ANALYTICS_ORIGINS = new Set([
+  "https://mandimind.tech",
+  "https://www.mandimind.tech",
+  "http://localhost:5173",
+]);
+const ALLOWED_EVENT_NAMES = new Set([
+  "home_search_submitted",
+  "compare_searched",
+  "recommendation_generated",
+  "trade_profit_calculated",
+  "language_changed",
+  "feedback_form_opened",
+  "feedback_form_submitted",
+  "api_error_seen",
+]);
 
 const CROP_MAP: Record<string, string> = {
   onion:   "Onion",
@@ -57,6 +73,14 @@ interface PriceRecord {
 interface WorkerCacheEnvelope<T> {
   ts: number;
   data: T;
+}
+
+interface AnalyticsEventPayload {
+  event: string;
+  page?: string;
+  sessionId?: string;
+  ts?: number;
+  metadata?: Record<string, unknown>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -219,6 +243,50 @@ function json(body: unknown, status = 200): Response {
       "Access-Control-Allow-Headers": "Content-Type",
     },
   });
+}
+
+function corsHeaders(origin?: string | null): Record<string, string> {
+  const allowedOrigin = origin && ALLOWED_ANALYTICS_ORIGINS.has(origin) ? origin : "*";
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+
+function jsonWithCors(body: unknown, status = 200, origin?: string | null): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...corsHeaders(origin),
+    },
+  });
+}
+
+function validateEventPayload(body: unknown): AnalyticsEventPayload | null {
+  if (!body || typeof body !== "object") return null;
+  const payload = body as Partial<AnalyticsEventPayload>;
+  if (!payload.event || typeof payload.event !== "string") return null;
+  if (!ALLOWED_EVENT_NAMES.has(payload.event)) return null;
+  if (payload.ts !== undefined && (!Number.isFinite(payload.ts) || payload.ts <= 0)) return null;
+  if (payload.page !== undefined && typeof payload.page !== "string") return null;
+  if (payload.sessionId !== undefined && typeof payload.sessionId !== "string") return null;
+  if (
+    payload.metadata !== undefined &&
+    (typeof payload.metadata !== "object" || Array.isArray(payload.metadata) || payload.metadata === null)
+  ) {
+    return null;
+  }
+  return payload as AnalyticsEventPayload;
+}
+
+async function incrementCounter(kv: KVNamespace, date: string, eventName: string): Promise<void> {
+  const key = `analytics:daily:${date}:${eventName}`;
+  const raw = await kv.get(key);
+  const current = Number(raw ?? "0");
+  const next = Number.isFinite(current) ? current + 1 : 1;
+  await kv.put(key, String(next), { expirationTtl: 60 * 60 * 24 * 45 });
 }
 
 async function fetchDataGov(
@@ -744,13 +812,66 @@ async function handleHealth(): Promise<Response> {
   });
 }
 
+async function handleEvents(request: Request, env: Env, ctx: { waitUntil(promise: Promise<unknown>): void }): Promise<Response> {
+  const origin = request.headers.get("Origin");
+  if (!origin || !ALLOWED_ANALYTICS_ORIGINS.has(origin)) {
+    return jsonWithCors({ error: "Origin not allowed" }, 403, origin);
+  }
+
+  let parsedBody: unknown;
+  try {
+    parsedBody = await request.json();
+  } catch {
+    return jsonWithCors({ error: "Invalid JSON body" }, 400, origin);
+  }
+
+  const payload = validateEventPayload(parsedBody);
+  if (!payload) {
+    return jsonWithCors({ error: "Invalid event payload" }, 400, origin);
+  }
+
+  const eventId = crypto.randomUUID();
+  const ts = typeof payload.ts === "number" && Number.isFinite(payload.ts) ? payload.ts : Date.now();
+  const dailyDate = new Date(ts).toISOString().slice(0, 10);
+  const cf = request as Request & { cf?: { country?: string } };
+  const eventRecord = {
+    ...payload,
+    origin,
+    ipCountry: cf.cf?.country ?? null,
+    userAgent: request.headers.get("User-Agent") ?? null,
+    receivedAt: Date.now(),
+  };
+
+  if (env.ANALYTICS_KV) {
+    ctx.waitUntil(
+      Promise.all([
+        env.ANALYTICS_KV.put(`analytics:${ts}:${eventId}`, JSON.stringify(eventRecord)),
+        incrementCounter(env.ANALYTICS_KV, dailyDate, payload.event),
+      ]).catch(() => undefined),
+    );
+  }
+
+  return jsonWithCors({ ok: true }, 200, origin);
+}
+
 // ─── Main fetch handler ───────────────────────────────────────────────────────
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: { waitUntil(promise: Promise<unknown>): void }): Promise<Response> {
     const url    = new URL(request.url);
     const path   = url.pathname;
     const params = url.searchParams;
+
+    if (path === "/api/events" && request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders(request.headers.get("Origin")),
+      });
+    }
+
+    if (path === "/api/events" && request.method === "POST") {
+      return handleEvents(request, env, ctx);
+    }
 
     // CORS preflight
     if (request.method === "OPTIONS") {
@@ -758,7 +879,7 @@ export default {
         status: 204,
         headers: {
           "Access-Control-Allow-Origin":  "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
         },
       });

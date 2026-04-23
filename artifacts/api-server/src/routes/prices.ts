@@ -35,6 +35,7 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_WINDOWS = [3, 5, 7] as const;
+type FreshnessBucket = "fresh" | "recent" | "old" | "expired";
 
 interface ParsedArrivalDate {
   ts: number;
@@ -91,6 +92,58 @@ function getDayDifference(arrivalDate: string, todayTs = startOfUtcDayTs()): num
   const parsed = parseArrivalDate(arrivalDate);
   if (!parsed) return null;
   return Math.floor((todayTs - parsed.normalizedTs) / DAY_MS);
+}
+
+function getFreshnessBucket(arrivalDate: string, todayTs = startOfUtcDayTs()): FreshnessBucket {
+  const dayDiff = getDayDifference(arrivalDate, todayTs);
+  if (dayDiff === null || dayDiff < 0) return "expired";
+  if (dayDiff === 0) return "fresh";
+  if (dayDiff <= 3) return "recent";
+  if (dayDiff <= 7) return "old";
+  return "expired";
+}
+
+function splitRecordsByFreshness(records: PriceRecord[], todayTs = startOfUtcDayTs()) {
+  const fresh = records.filter((r) => getFreshnessBucket(r.date, todayTs) === "fresh");
+  const recent = records.filter((r) => getFreshnessBucket(r.date, todayTs) === "recent");
+  const old = records.filter((r) => getFreshnessBucket(r.date, todayTs) === "old");
+  const expired = records.filter((r) => getFreshnessBucket(r.date, todayTs) === "expired");
+  const latestAvailableDate = [...fresh, ...recent].sort((a, b) => {
+    const aTs = parseArrivalDate(a.date)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
+    const bTs = parseArrivalDate(b.date)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
+    return bTs - aTs;
+  })[0]?.date ?? null;
+  return {
+    fresh,
+    recent,
+    old,
+    expired,
+    latestAvailableDate,
+    freshCount: fresh.length,
+    recentCount: recent.length,
+    oldCount: old.length,
+    expiredCount: expired.length,
+    hasFresh: fresh.length > 0,
+    hasRecent: recent.length > 0,
+    hasOld: old.length > 0,
+  };
+}
+
+function getFreshnessWeight(freshnessDays: number | null): number {
+  if (freshnessDays === null) return 0;
+  if (freshnessDays <= 0) return 1;
+  if (freshnessDays === 1) return 0.85;
+  if (freshnessDays === 2) return 0.65;
+  if (freshnessDays === 3) return 0.45;
+  return 0;
+}
+
+type RankingIntent = "SELL" | "BUY";
+
+function getDecisionScore(price: number, freshnessDays: number | null, intent: RankingIntent): number {
+  const weight = getFreshnessWeight(freshnessDays);
+  if (!Number.isFinite(price) || price <= 0 || weight <= 0) return 0;
+  return intent === "BUY" ? price / weight : price * weight;
 }
 
 function isDataStale(dateStr: string): boolean {
@@ -311,7 +364,7 @@ async function fetchDataGovPaginated(
 // Query: crop, market, state (default Maharashtra), days (default 30)
 // Returns: { data[], currentPrice, priceRange, lastUpdated, source, stale }
 router.get("/prices", async (req: Request, res: Response) => {
-  const { crop, market, state = "Maharashtra", days = "30" } = req.query as Record<string, string>;
+  const { crop, market, state = "Maharashtra", days = "30", mode = "bestAvailable", intent = "SELL" } = req.query as Record<string, string>;
 
   if (!crop || !market) {
     return res.status(400).json({ error: "crop and market are required" });
@@ -328,10 +381,16 @@ router.get("/prices", async (req: Request, res: Response) => {
   try {
     const records = await fetchDataGov("", market, state, Math.max(Number(days), 200));
     const cropMatchedRecords = records.filter((r) => commodityMatches(commodity, r.commodity));
-    const fallbackSelection = selectWithFallback(cropMatchedRecords);
+    const todayTs = startOfUtcDayTs();
+    const freshness = splitRecordsByFreshness(cropMatchedRecords, todayTs);
+    const effectiveMode = mode === "todayOnly" ? "todayOnly" : "bestAvailable";
+    const primaryRows = effectiveMode === "todayOnly"
+      ? freshness.fresh
+      : [...freshness.fresh, ...freshness.recent];
     const numDays = Number(days) || 30;
-    const trimmed = (fallbackSelection.records.length > 0 ? fallbackSelection.records : cropMatchedRecords).slice(-numDays);
-    const todayDayTs = startOfUtcDayTs();
+    const trimmed = primaryRows.slice(-numDays);
+    const oldRows = freshness.old.slice(-numDays);
+    const todayDayTs = todayTs;
     const recentRangeCount = records.filter((r) => {
       const dayDiff = getDayDifference(r.date, todayDayTs);
       return dayDiff !== null && dayDiff >= 1 && dayDiff <= 3;
@@ -364,11 +423,21 @@ router.get("/prices", async (req: Request, res: Response) => {
 
     const prices  = trimmed.map(r => r.modal_price);
     const latest  = trimmed[trimmed.length - 1] ?? null;
+    const rankingIntent: RankingIntent = intent.toUpperCase() === "BUY" ? "BUY" : "SELL";
+    const rankedMandis = trimmed.map((row) => {
+      const freshnessDays = getDayDifference(row.date, todayTs);
+      return {
+        ...row,
+        freshnessDays,
+        freshnessBucket: getFreshnessBucket(row.date, todayTs),
+        weightedScore: Number(getDecisionScore(row.modal_price, freshnessDays, rankingIntent).toFixed(2)),
+      };
+    }).sort((a, b) => rankingIntent === "BUY" ? a.weightedScore - b.weightedScore : b.weightedScore - a.weightedScore);
+    const strongCoverage = freshness.freshCount >= 3 || (freshness.freshCount + freshness.recentCount) >= 5;
 
     const variance7d = calculateVariancePct(trimmed.slice(-7).map((r) => r.modal_price).filter((p) => p > 0));
 
     const responseData = {
-      data:         trimmed,
       currentPrice: latest?.modal_price ?? null,
       priceRange: {
         low:  prices.length ? Math.min(...prices) : null,
@@ -376,8 +445,39 @@ router.get("/prices", async (req: Request, res: Response) => {
       },
       lastUpdated: latest?.date ?? null,
       stale:       latest ? isDataStale(latest.date) : true,
-      freshnessDays: fallbackSelection.metadata.freshnessDays,
-      source:      fallbackSelection.metadata.source,
+      latestAvailableDate: freshness.latestAvailableDate,
+      freshnessDays: latest ? getDayDifference(latest.date, todayTs) : null,
+      source: effectiveMode === "todayOnly" ? "live-today" : "live-best-available",
+      data: trimmed.map((row) => ({ ...row, freshnessDays: getDayDifference(row.date, todayTs), freshnessBucket: getFreshnessBucket(row.date, todayTs) })),
+      fallbackOldData: oldRows.map((row) => ({ ...row, freshnessDays: getDayDifference(row.date, todayTs), freshnessBucket: getFreshnessBucket(row.date, todayTs) })),
+      rankedMandis,
+      bestMandi: strongCoverage ? rankedMandis[0] ?? null : null,
+      bestConfidence: strongCoverage ? "high" : "low",
+      bestMandiMessage: strongCoverage
+        ? "Based on strong recent data"
+        : "Limited data, use caution",
+      rankingBasis: "fresh_recent_only",
+      rankingIntent,
+      freshnessCounts: {
+        freshCount: freshness.freshCount,
+        recentCount: freshness.recentCount,
+        oldCount: freshness.oldCount,
+        expiredCount: freshness.expiredCount,
+      },
+      coverageMessage: `Fresh: ${freshness.freshCount}, Recent: ${freshness.recentCount}`,
+      hasFresh: freshness.hasFresh,
+      hasRecent: freshness.hasRecent,
+      hasOld: freshness.hasOld,
+      status: rankedMandis.length === 0
+        ? "no_usable_data"
+        : freshness.hasFresh
+        ? "today_has_data"
+        : freshness.hasRecent
+          ? (effectiveMode === "todayOnly" ? "today_no_data_recent_exists" : "recent_has_data")
+          : freshness.hasOld
+            ? "only_old_data"
+            : "no_usable_data",
+      mode: effectiveMode,
       variance7d,
     };
 
@@ -486,7 +586,7 @@ router.get("/trend", async (req: Request, res: Response) => {
 // Fetches all mandis in the state for the crop; returns sorted by today's price.
 // Returns: { mandis: [{mandi, todayPrice, avgPrice, lastUpdated, stale}], lastUpdated, source }
 router.get("/compare", async (req: Request, res: Response) => {
-  const { crop, state = "Maharashtra", days = "7" } = req.query as Record<string, string>;
+  const { crop, state = "Maharashtra", days = "7", mode = "bestAvailable", intent = "SELL" } = req.query as Record<string, string>;
 
   if (!crop) {
     return res.status(400).json({ error: "crop is required" });
@@ -537,8 +637,13 @@ router.get("/compare", async (req: Request, res: Response) => {
     }
 
     const numDays = Number(days) || 7;
-    const fallbackSelection = selectWithFallback(stateFilteredRecords);
-    const candidateRecords = fallbackSelection.records.length > 0 ? fallbackSelection.records : stateFilteredRecords;
+    const todayTs = startOfUtcDayTs();
+    const rankingIntent: RankingIntent = intent.toUpperCase() === "BUY" ? "BUY" : "SELL";
+    const freshness = splitRecordsByFreshness(stateFilteredRecords, todayTs);
+    const effectiveMode = mode === "todayOnly" ? "todayOnly" : "bestAvailable";
+    const candidateRecords = effectiveMode === "todayOnly"
+      ? freshness.fresh
+      : [...freshness.fresh, ...freshness.recent];
 
     // Group by market
     const byMandi = new Map<string, PriceRecord[]>();
@@ -573,22 +678,36 @@ router.get("/compare", async (req: Request, res: Response) => {
       return {
         mandi,
         todayPrice:  latest.modal_price,
+        freshnessWeight: getFreshnessWeight(getDayDifference(latest.date, todayTs)),
+        weightedScore: Number(getDecisionScore(latest.modal_price, getDayDifference(latest.date, todayTs), rankingIntent).toFixed(2)),
         avgPrice,
         variance7d: calculateVariancePct(recent.map((r) => r.modal_price).filter((p) => p > 0)),
         lastUpdated: latest.date,
         stale:       isDataStale(latest.date),
+        freshnessDays: getDayDifference(latest.date, todayTs),
+        freshnessBucket: getFreshnessBucket(latest.date, todayTs),
       };
     }).filter(m => m.todayPrice > 0);
 
     // Sort by today's price descending
-    mandiSummaries.sort((a, b) => b.todayPrice - a.todayPrice);
+    mandiSummaries.sort((a, b) => {
+      const freshnessPriority = (value: number | null) =>
+        value === 0 ? 3 : value !== null && value <= 3 ? 2 : 0;
+      const byFreshness = freshnessPriority(b.freshnessDays) - freshnessPriority(a.freshnessDays);
+      if (byFreshness !== 0) return byFreshness;
+      const byScore = rankingIntent === "BUY" ? a.weightedScore - b.weightedScore : b.weightedScore - a.weightedScore;
+      if (byScore !== 0) return byScore;
+      return b.todayPrice - a.todayPrice;
+    });
+    const rankedMandis = mandiSummaries;
+    const strongCoverage = freshness.freshCount >= 3 || (freshness.freshCount + freshness.recentCount) >= 5;
 
     const priceVariance = mandiSummaries.length > 0
       ? Number((mandiSummaries.reduce((sum, row) => sum + row.variance7d, 0) / mandiSummaries.length).toFixed(2))
       : 0;
     const confidence = getConfidenceFromSignals({
-      freshnessDays: fallbackSelection.metadata.freshnessDays,
-      source: fallbackSelection.metadata.source,
+      freshnessDays: mandiSummaries[0]?.freshnessDays ?? null,
+      source: mandiSummaries.length > 0 ? "live" : "fallback",
       mandiCount: mandiSummaries.length,
       priceVariance,
     });
@@ -597,9 +716,45 @@ router.get("/compare", async (req: Request, res: Response) => {
       mandis:      mandiSummaries.length > 0
         ? mandiSummaries
         : [{ mandi: "No mandi data", todayPrice: 0, avgPrice: 0, lastUpdated: latestDate ?? null, stale: true }],
+      fallbackOldRows: freshness.old.map((row) => ({
+        mandi: row.market,
+        date: row.date,
+        price: row.modal_price,
+        freshnessDays: getDayDifference(row.date, todayTs),
+        freshnessBucket: getFreshnessBucket(row.date, todayTs),
+      })),
+      latestAvailableDate: freshness.latestAvailableDate,
       lastUpdated: latestDate,
-      freshnessDays: fallbackSelection.metadata.freshnessDays,
-      source:      fallbackSelection.metadata.source,
+      freshnessDays: mandiSummaries[0]?.freshnessDays ?? null,
+      source:      effectiveMode === "todayOnly" ? "live-today" : "live-best-available",
+      freshnessCounts: {
+        freshCount: freshness.freshCount,
+        recentCount: freshness.recentCount,
+        oldCount: freshness.oldCount,
+        expiredCount: freshness.expiredCount,
+      },
+      coverageMessage: `Fresh: ${freshness.freshCount}, Recent: ${freshness.recentCount}`,
+      hasFresh: freshness.hasFresh,
+      hasRecent: freshness.hasRecent,
+      hasOld: freshness.hasOld,
+      rankedMandis,
+      bestMandi: strongCoverage ? rankedMandis[0] ?? null : null,
+      bestConfidence: strongCoverage ? "high" : "low",
+      bestMandiMessage: strongCoverage
+        ? "Based on strong recent data"
+        : "Limited data, use caution",
+      rankingBasis: "fresh_recent_only",
+      rankingIntent,
+      status: rankedMandis.length === 0
+        ? "no_usable_data"
+        : freshness.hasFresh
+        ? "today_has_data"
+        : freshness.hasRecent
+          ? (effectiveMode === "todayOnly" ? "today_no_data_recent_exists" : "recent_has_data")
+          : freshness.hasOld
+            ? "only_old_data"
+            : "no_usable_data",
+      mode: effectiveMode,
       priceVariance,
       ...confidence,
     };
