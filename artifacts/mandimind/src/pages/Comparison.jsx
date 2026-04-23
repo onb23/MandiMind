@@ -180,7 +180,6 @@ export default function Comparison() {
       return a.mandi.localeCompare(b.mandi);
     });
   const lastUpdated = latestAvailableDate;
-  const displayedMandis = rankedMandis;
   const bestMandiName = typeof bestMandiId === "string"
     ? bestMandiId
     : typeof bestMandiId?.mandi === "string"
@@ -210,50 +209,48 @@ export default function Comparison() {
     wait: t.comparisonInsightWait,
     neutral: t.comparisonInsightNeutral,
   };
-  const hasToday = (compareData?.todayCount || 0) > 0
-    || [...normalizedBackendRanked, ...normalizedMandis].some((row) => row?.modeFreshnessDays === 0)
-    || [...backendRanked, ...mandis].some((row) => Number.isFinite(row?.todayPrice) && row.todayPrice > 0);
   const todayCount = compareData?.todayCount ?? 0;
-const apiRecentCount = compareData?.recentCount ?? 0;
-const usableCount = compareData?.usableCount ?? 0;
+  const recentCount = compareData?.recentCount ?? 0;
+  const usableCount = compareData?.usableCount ?? 0;
 
-const hasBackendRanked = normalizedBackendRanked.length > 0;
-const hasMandis = normalizedMandis.length > 0;
-const hasFallbackOld = normalizedFallback.length > 0;
+  const isTodayMode = compareMode === "today";
+  const isBestAvailableMode = compareMode === "latest";
 
-const isTodayMode = compareMode === "today";
-const isBestAvailableMode = compareMode === "latest";
+  const hasTodayData =
+    todayCount > 0 ||
+    normalizedMandis.some((row) => Number.isFinite(row?.todayPrice) && row.todayPrice > 0) ||
+    normalizedMandis.some((row) => row?.modeFreshnessDays === 0);
 
-const hasTodayData =
-  todayCount > 0 ||
-  normalizedMandis.some((row) => Number.isFinite(row?.todayPrice) && row.todayPrice > 0) ||
-  normalizedMandis.some((row) => row?.modeFreshnessDays === 0);
+  const hasBestAvailableData =
+    usableCount > 0 ||
+    recentCount > 0 ||
+    normalizedMandis.length > 0 ||
+    compareData?.status === "recent_has_data" ||
+    compareData?.status === "kv_fallback";
 
-const hasBestAvailableData =
-  usableCount > 0 ||
-  apiRecentCount > 0 ||
-  hasMandis ||
-  hasBackendRanked ||
-  hasFallbackOld ||
-  compareData?.status === "recent_has_data" ||
-  compareData?.status === "kv_fallback";
+  const primaryList = isTodayMode
+    ? normalizedMandis.filter((item) => Number.isFinite(item?.todayPrice) && item.todayPrice > 0)
+    : (normalizedBackendRanked.length > 0 ? normalizedBackendRanked : normalizedMandis);
 
-const primaryList = isTodayMode
-  ? normalizedMandis.filter((item) => Number.isFinite(item?.todayPrice) && item.todayPrice > 0)
-  : (normalizedBackendRanked.length > 0 ? normalizedBackendRanked : normalizedMandis);
+  const displayedMandis = primaryList;
+  const shouldRenderRanked = displayedMandis.length > 0;
+  const shouldRenderFallback = isBestAvailableMode && normalizedFallback.length > 0;
+  const hasRecentOrFreshBestAvailable = isBestAvailableMode && (
+    displayedMandis.some((item) => Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays <= 3)
+    || recentCount > 0
+    || usableCount > 0
+  );
+  const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailableData && (shouldRenderRanked || shouldRenderFallback);
+  const showOldFallbackMessage = isBestAvailableMode && hasBestAvailableData && !shouldRenderRanked && shouldRenderFallback;
+  const showNoDataState = isTodayMode ? !hasTodayData : !hasBestAvailableData;
 
-const showNoDataState = isTodayMode ? !hasTodayData : !hasBestAvailableData;
-  const maxFreshnessDays = rankedMandis.reduce((max, item) => {
+  const maxFreshnessDays = displayedMandis.reduce((max, item) => {
     if (!Number.isFinite(item.modeFreshnessDays)) return max;
     return Math.max(max, item.modeFreshnessDays);
   }, 0);
-  const hasNonTodayDataInRanked = rankedMandis.some((item) => Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays > 0);
-  const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailable && (hasRankedForBest || shouldRenderFallback);
-  const showOldFallbackMessage = isBestAvailableMode && hasBestAvailable && !hasRankedForBest && shouldRenderFallback;
-  const showNoDataState = isTodayMode ? !hasToday : !hasBestAvailable;
-  const hasRecentOrFreshBestAvailable = isBestAvailableMode && (hasFreshOrRecent || hasRankedForBest);
+  const hasNonTodayDataInRanked = displayedMandis.some((item) => Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays > 0);
   const getModeMessage = () => {
-    if (isTodayMode && !hasToday) {
+    if (isTodayMode && !hasTodayData) {
       return language === "mr"
         ? "आजचा डेटा उपलब्ध नाही. कृपया नंतर पुन्हा तपासा."
         : "Today's data is not available yet. Please check again later.";
@@ -263,7 +260,7 @@ const showNoDataState = isTodayMode ? !hasTodayData : !hasBestAvailableData;
         ? "सध्या फक्त जुना उपलब्ध डेटा दाखवला जात आहे."
         : "Only older available data is being shown right now.";
     }
-    if (isBestAvailableMode && !hasToday && hasBestAvailable) {
+    if (isBestAvailableMode && !hasTodayData && hasBestAvailableData) {
       return language === "mr"
         ? "आजचा डेटा उपलब्ध नाही. मागील उपलब्ध भाव दाखवले जात आहेत."
         : "Today's data is not available. Showing latest available prices.";
@@ -595,7 +592,7 @@ const showNoDataState = isTodayMode ? !hasTodayData : !hasBestAvailableData;
                   Best available for decision
                 </h2>
                 <div className="space-y-4">
-                  {rankedMandis.map((item, idx) => (
+                  {displayedMandis.map((item, idx) => (
                     <div
                       key={`ranked-${item.mandi}`}
                       className="animate-fade-in-up"
@@ -603,7 +600,7 @@ const showNoDataState = isTodayMode ? !hasTodayData : !hasBestAvailableData;
                     >
                       <MandiCard
                       mandi={item.mandi}
-                      todayPrice={item.modePrice}
+                      todayPrice={isBestAvailableMode ? (item.todayPrice ?? item.avgPrice ?? item.modePrice) : item.modePrice}
                       avgPrice={item.avgPrice}
                       stale={false}
                       freshnessDays={item.modeFreshnessDays}
@@ -650,7 +647,7 @@ const showNoDataState = isTodayMode ? !hasTodayData : !hasBestAvailableData;
 
             {(shouldRenderRanked || shouldRenderFallback) && (
               <p className="text-center text-xs text-gray-500 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {t.mandiCountSummary.replace("{count}", rankedMandis.length + normalizedFallback.length)}
+                {t.mandiCountSummary.replace("{count}", displayedMandis.length + normalizedFallback.length)}
               </p>
             )}
             <p className="text-center text-[11px] text-gray-400 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
