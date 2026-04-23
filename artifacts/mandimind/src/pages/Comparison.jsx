@@ -131,11 +131,16 @@ export default function Comparison() {
   const isTodayMode = compareMode === "today";
   const isBestAvailableMode = compareMode === "latest";
   const todayMandis = normalizedMandis.filter((item) => item.todayPrice != null);
-  const bestAvailableMandis = normalizedMandis.filter((item) => item.todayPrice != null || item.avgPrice != null);
+  const bestAvailableMandis = normalizedMandis.filter(
+    (item) => item.todayPrice != null || item.avgPrice != null
+  );
+  const renderRows = isBestAvailableMode
+    ? mandis.filter((m) => m?.todayPrice != null || m?.avgPrice != null)
+    : mandis.filter((m) => m?.todayPrice != null);
   const displayedMandis = isTodayMode ? todayMandis : bestAvailableMandis;
-  const hasTodayData = todayMandis.length > 0;
-  const hasBestAvailableData = bestAvailableMandis.length > 0;
-  const comparableMandis = displayedMandis.filter((item) => Number.isFinite(item?.todayPrice) && Number.isFinite(item?.avgPrice));
+  const normalizedFallback = [];
+  const hasBestAvailable = displayedMandis.length > 0 || normalizedFallback.length > 0;
+  const comparableMandis = renderRows.filter((item) => Number.isFinite(item?.todayPrice) && Number.isFinite(item?.avgPrice));
   const avgTodayPrice = comparableMandis.length
     ? Math.round(comparableMandis.reduce((sum, item) => sum + item.todayPrice, 0) / comparableMandis.length)
     : null;
@@ -146,16 +151,16 @@ export default function Comparison() {
   const comparisonGapPct = hasInsightData ? ((avgTodayPrice - avgRecentPrice) / avgRecentPrice) * 100 : null;
   const similarityThresholdPct = 1;
   const insightType = !hasInsightData ? null : comparisonGapPct > similarityThresholdPct ? "sell" : comparisonGapPct < -similarityThresholdPct ? "wait" : "neutral";
-  const shouldRenderRanked = displayedMandis.length > 0;
-  const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailableData;
-  const showNoDataState = isTodayMode ? !hasTodayData : !hasBestAvailableData;
+  const shouldRenderRanked = renderRows.length > 0;
+  const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailable;
+  const showNoDataState = displayedMandis.length === 0 && normalizedFallback.length === 0;
   const getModeMessage = () => {
-    if (isTodayMode && !hasTodayData) {
+    if (isTodayMode && displayedMandis.length === 0) {
       return language === "mr"
         ? "आजचा डेटा उपलब्ध नाही. कृपया नंतर पुन्हा तपासा."
         : "Today's data is not available yet. Please check again later.";
     }
-    if (isBestAvailableMode && !hasTodayData && hasBestAvailableData) {
+    if (isBestAvailableMode && displayedMandis.length === 0 && hasBestAvailable) {
       return language === "mr"
         ? "आजचा डेटा उपलब्ध नाही. मागील उपलब्ध भाव दाखवले जात आहेत."
         : "Today's data is not available. Showing latest available prices.";
@@ -350,7 +355,7 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && error && (
+        {!loading && !error && (displayedMandis.length === 0) && (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-5 text-center">
             <p className="text-red-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.dataUnavailableTryAgain}
@@ -442,7 +447,7 @@ export default function Comparison() {
                   Best available for decision
                 </h2>
                 <div className="space-y-4">
-                  {displayedMandis.map((item, idx) => (
+                  {renderRows.map((item, idx) => (
                     <div
                       key={`ranked-${item.mandi}`}
                       className="animate-fade-in-up"
@@ -450,7 +455,8 @@ export default function Comparison() {
                     >
                       <MandiCard
                       mandi={item.mandi}
-                      todayPrice={isBestAvailableMode ? (item.todayPrice ?? item.avgPrice) : item.todayPrice}
+                      price={item.todayPrice ?? item.avgPrice}
+                      todayPrice={item.todayPrice}
                       avgPrice={item.avgPrice}
                       stale={false}
                       isBest={false}
@@ -470,7 +476,7 @@ export default function Comparison() {
 
             {shouldRenderRanked && (
               <p className="text-center text-xs text-gray-500 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {t.mandiCountSummary.replace("{count}", displayedMandis.length)}
+                {t.mandiCountSummary.replace("{count}", renderRows.length)}
               </p>
             )}
             <p className="text-center text-[11px] text-gray-400 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
