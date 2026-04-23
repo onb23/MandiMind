@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import SpeakerButton from "../components/SpeakerButton";
-import { useSpeechAssistant } from "../utils/speechSynthesis";
 import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
 import { trackEvent } from "../lib/analytics";
