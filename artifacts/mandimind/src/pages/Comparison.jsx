@@ -197,10 +197,20 @@ export default function Comparison() {
     wait: t.comparisonInsightWait,
     neutral: t.comparisonInsightNeutral,
   };
+  const hasTodayRows = splitRanked.decision.some((item) => item.modeFreshnessDays === 0);
+  const hasRecentRows = splitRanked.decision.some((item) =>
+    Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays > 0 && item.modeFreshnessDays <= 3
+  );
+  const hasOldRows = normalizedFallback.length > 0;
+  const isTodayMode = compareMode === "today";
+  const isBestAvailableMode = compareMode === "latest";
   const shouldRenderRanked = rankedMandis.length > 0;
-  const shouldRenderFallback = normalizedFallback.length > 0;
-  const showFallbackOnlyMessage = !shouldRenderRanked && shouldRenderFallback;
-  const showNoDataState = !shouldRenderRanked && !shouldRenderFallback;
+  const shouldRenderFallback = isBestAvailableMode && hasOldRows;
+  const showRecentFallbackMessage = isBestAvailableMode && !hasTodayRows && hasRecentRows;
+  const showOldFallbackMessage = isBestAvailableMode && !shouldRenderRanked && shouldRenderFallback;
+  const showNoDataState = isTodayMode
+    ? !shouldRenderRanked
+    : !shouldRenderRanked && !shouldRenderFallback;
 
   const spokenLang = (selectedVoiceLang || language || "mr").toLowerCase().startsWith("mr")
     ? "mr"
@@ -238,7 +248,7 @@ export default function Comparison() {
         en: "No usable data is available right now. Please check again later.",
       });
     }
-    if (showFallbackOnlyMessage) {
+    if (showOldFallbackMessage) {
       return speakByLang({
         mr: "ताजे निर्णय-योग्य डेटा उपलब्ध नाही. ४ ते ७ दिवसांचा जुना फॉलबॅक डेटा दाखवत आहोत.",
         hi: "ताज़ा निर्णय-ग्रेड डेटा उपलब्ध नहीं है। 4 से 7 दिन पुराना फॉलबैक डेटा दिखा रहे हैं।",
@@ -424,10 +434,18 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && showFallbackOnlyMessage && (
+        {!loading && !error && showRecentFallbackMessage && (
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-center mb-3">
+            <p className="text-blue-900 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Showing latest available data (last 1–3 days)
+            </p>
+          </div>
+        )}
+
+        {!loading && !error && showOldFallbackMessage && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center mb-3">
             <p className="text-amber-900 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              No fresh or recent decision-grade data available. Showing older fallback data.
+              Showing older data (4–7 days old)
             </p>
           </div>
         )}
@@ -435,7 +453,7 @@ export default function Comparison() {
         {!loading && !error && showNoDataState && (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-center">
             <p className="text-slate-800 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              No usable data available.
+              No data
             </p>
             <div className="mt-3 flex justify-center">
               <SpeakerButton
