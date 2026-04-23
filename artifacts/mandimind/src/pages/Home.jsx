@@ -28,6 +28,7 @@ export default function Home() {
 
   const [mandiOptions, setMandiOptions] = useState([]);
   const [mandiFreshnessDays, setMandiFreshnessDays] = useState(null);
+  const [mandiDataCounts, setMandiDataCounts] = useState({ todayCount: 0, usableCount: 0 });
   const [mandiLoading, setMandiLoading] = useState(false);
   const [mandiError, setMandiError] = useState("");
 
@@ -35,8 +36,10 @@ export default function Home() {
     return getMandisForPriceMode(mandiOptions, priceType);
   }, [mandiOptions, priceType]);
   const hasVisibleMandis = visibleMandis.length > 0;
-  const hasAnyUsableMandis = mandiOptions.some((item) => item?.isUsable);
-  const hasTodayMandis = mandiOptions.some((item) => Boolean(item?.todayRow));
+  const hasTodayData = (mandiDataCounts?.todayCount ?? 0) > 0;
+  const hasRecentData = (mandiDataCounts?.usableCount ?? 0) > 0;
+  const hasAnyUsableMandis = hasTodayData || hasRecentData || mandiOptions.some((item) => item?.isUsable);
+  const hasTodayMandis = hasTodayData || mandiOptions.some((item) => Boolean(item?.todayRow));
   const hasRecentMandis = mandiOptions.some((item) => {
     if (!item?.latestAvailableRow) return false;
     return Number.isFinite(item?.latestFreshnessDays) && item.latestFreshnessDays >= 1 && item.latestFreshnessDays <= 3;
@@ -61,24 +64,26 @@ export default function Home() {
     && isRecentMode;
 
   const todayModeEmptyState = selectedCrop && !mandiLoading && !mandiError && isTodayMode && !hasTodayMandis;
-  const recentModeEmptyState = selectedCrop && !mandiLoading && !mandiError && isRecentMode && !hasAnyUsableMandis;
+  const recentModeEmptyState = selectedCrop && !mandiLoading && !mandiError && isRecentMode && !hasRecentData && !hasTodayData;
 
   const modeAvailabilityBanner = useMemo(() => {
     if (!selectedCrop || mandiLoading || mandiError) return "";
     if (isTodayMode && !hasTodayMandis) {
       return t.todayLiveDataUnavailable;
     }
-    if (isRecentMode && hasRecentMandis && !hasTodayMandis) {
-      return t.recentModeUsingLatestAvailable;
+    if (isRecentMode && hasRecentData && !hasTodayData) {
+      return language === "mr"
+        ? "आजचा डेटा उपलब्ध नाही. मागील उपलब्ध भाव वापरले जात आहेत."
+        : t.recentModeUsingLatestAvailable;
     }
     if (isRecentMode && !hasRecentMandis && hasOlderFallbackMandis) {
       return t.recentModeUsingOlderFallback;
     }
-    if (!hasAnyUsableMandis) {
+    if (!hasTodayData && !hasRecentData) {
       return t.noUsableDataForSelection;
     }
     return "";
-  }, [selectedCrop, mandiLoading, mandiError, isTodayMode, isRecentMode, hasTodayMandis, hasRecentMandis, hasOlderFallbackMandis, hasAnyUsableMandis, t]);
+  }, [selectedCrop, mandiLoading, mandiError, isTodayMode, isRecentMode, hasTodayData, hasRecentData, hasTodayMandis, hasRecentMandis, hasOlderFallbackMandis, language, t]);
 
   const handleCropChange = (cropId) => {
     setSelectedCrop(cropId);
@@ -135,6 +140,7 @@ export default function Home() {
       if (!selectedCrop) {
         setMandiOptions([]);
         setMandiError("");
+        setMandiDataCounts({ todayCount: 0, usableCount: 0 });
         setMandiLoading(false);
         return;
       }
@@ -149,10 +155,15 @@ export default function Home() {
       if (result?.source === "error") {
         setMandiOptions([]);
         setMandiFreshnessDays(null);
+        setMandiDataCounts({ todayCount: 0, usableCount: 0 });
         setMandiError(t.liveMandiTemporarilyUnavailable);
       } else {
         setMandiOptions(result?.mandis || []);
         setMandiFreshnessDays(Number.isFinite(result?.freshnessDays) ? result.freshnessDays : null);
+        setMandiDataCounts({
+          todayCount: Number.isFinite(result?.todayCount) ? result.todayCount : 0,
+          usableCount: Number.isFinite(result?.usableCount) ? result.usableCount : 0,
+        });
         if (selectedMandi && !(result?.mandis || []).some((item) => item.mandi === selectedMandi)) {
           setSelectedMandi("");
         }
@@ -173,6 +184,16 @@ export default function Home() {
       setSelectedMandi("");
     }
   }, [priceType, selectedMandi, visibleMandis]);
+
+  useEffect(() => {
+    if (!selectedCrop || mandiLoading || mandiError) return;
+    console.log("[MandiMind][Home] filtered mandi array:", visibleMandis);
+    console.log("[MandiMind][Home] selected mode:", priceType);
+    console.log("[MandiMind][Home] counts:", {
+      todayCount: mandiDataCounts.todayCount,
+      usableCount: mandiDataCounts.usableCount,
+    });
+  }, [selectedCrop, mandiLoading, mandiError, visibleMandis, priceType, mandiDataCounts]);
 
   const formatInr = (price) => {
     if (!Number.isFinite(price)) return t.naLabel;
