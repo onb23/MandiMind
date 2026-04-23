@@ -102,7 +102,7 @@ export default function Comparison() {
   }, [selectedCrop, language]);
 
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
-  const mandis = compareData?.mandis || [];
+  const mandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
   const backendRanked = Array.isArray(compareData?.rankedMandis) ? compareData.rankedMandis : [];
   const backendFallbackOld = Array.isArray(compareData?.fallbackOldMandis)
     ? compareData.fallbackOldMandis
@@ -131,7 +131,7 @@ export default function Comparison() {
     modeFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
     freshnessBucket: typeof item?.freshnessBucket === "string" ? item.freshnessBucket : null,
   });
-  const normalizedRanked = backendRanked
+  const normalizedBackendRanked = backendRanked
     .map(normalizeMandiItem)
     .filter((item) => item.mandi !== "No mandi data")
     .sort((a, b) => {
@@ -141,7 +141,18 @@ export default function Comparison() {
       if (byFreshness !== 0) return byFreshness;
       return a.mandi.localeCompare(b.mandi);
     });
-  const splitRanked = normalizedRanked.reduce(
+  const normalizedMandis = mandis
+    .map(normalizeMandiItem)
+    .filter((item) => item.mandi !== "No mandi data")
+    .sort((a, b) => {
+      const byPrice = scorePrice(b.modePrice) - scorePrice(a.modePrice);
+      if (byPrice !== 0) return byPrice;
+      const byFreshness = (a.modeFreshnessDays ?? 999) - (b.modeFreshnessDays ?? 999);
+      if (byFreshness !== 0) return byFreshness;
+      return a.mandi.localeCompare(b.mandi);
+    });
+  const primaryRankedSource = normalizedBackendRanked.length > 0 ? normalizedBackendRanked : normalizedMandis;
+  const splitRanked = primaryRankedSource.reduce(
     (acc, item) => {
       const isOldFromBucket = item.freshnessBucket === "old" || item.freshnessBucket === "expired";
       const isOldFromDays = Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays > 3;
@@ -155,7 +166,7 @@ export default function Comparison() {
     { decision: [], old: [] }
   );
   const rankedMandis = compareMode === "today"
-    ? splitRanked.decision.filter((item) => item.modeFreshnessDays === 0)
+    ? splitRanked.decision.filter((item) => item.modeFreshnessDays === 0 || Number.isFinite(item?.todayPrice))
     : splitRanked.decision;
   const normalizedFallback = [...backendFallbackOld, ...splitRanked.old]
     .map((item) => ({
@@ -200,27 +211,58 @@ export default function Comparison() {
     neutral: t.comparisonInsightNeutral,
   };
   const hasToday = (compareData?.todayCount || 0) > 0
-    || (compareData?.mandis || []).some((row) => row?.freshnessDays === 0);
+    || [...normalizedBackendRanked, ...normalizedMandis].some((row) => row?.modeFreshnessDays === 0)
+    || [...backendRanked, ...mandis].some((row) => Number.isFinite(row?.todayPrice) && row.todayPrice > 0);
   const freshCount = freshnessCounts?.freshCount ?? 0;
   const recentCount = freshnessCounts?.recentCount ?? 0;
   const hasFreshOrRecent = freshCount > 0 || recentCount > 0;
-  const hasBestAvailable = hasFreshOrRecent || (backendFallbackOld.length || 0) > 0;
+  const hasBackendRanked = normalizedBackendRanked.length > 0;
+  const hasMandis = normalizedMandis.length > 0;
+  const hasBestAvailable = hasFreshOrRecent
+    || hasBackendRanked
+    || (backendFallbackOld.length || 0) > 0
+    || hasMandis;
   const hasRankedForBest = rankedMandis.length > 0;
   const hasOldRows = normalizedFallback.length > 0;
   const isTodayMode = compareMode === "today";
   const isBestAvailableMode = compareMode === "latest";
   const shouldRenderRanked = isTodayMode
     ? hasToday && rankedMandis.length > 0
-    : (hasFreshOrRecent ? rankedMandis.length > 0 : hasRankedForBest);
+    : hasRankedForBest;
   const shouldRenderFallback = isBestAvailableMode && hasOldRows;
   const maxFreshnessDays = rankedMandis.reduce((max, item) => {
     if (!Number.isFinite(item.modeFreshnessDays)) return max;
     return Math.max(max, item.modeFreshnessDays);
   }, 0);
   const hasNonTodayDataInRanked = rankedMandis.some((item) => Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays > 0);
-  const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailable && hasRankedForBest;
+  const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailable && (hasRankedForBest || shouldRenderFallback);
   const showOldFallbackMessage = isBestAvailableMode && hasBestAvailable && !hasRankedForBest && shouldRenderFallback;
-  const showNoDataState = isTodayMode ? !hasToday : !(hasFreshOrRecent || shouldRenderFallback);
+  const showNoDataState = isTodayMode ? !hasToday : !hasBestAvailable;
+  const hasRecentOrFreshBestAvailable = isBestAvailableMode && (hasFreshOrRecent || hasRankedForBest);
+  const getModeMessage = () => {
+    if (isTodayMode && !hasToday) {
+      return language === "mr"
+        ? "आजचा डेटा उपलब्ध नाही. कृपया नंतर पुन्हा तपासा."
+        : "Today's data is not available yet. Please check again later.";
+    }
+    if (isBestAvailableMode && shouldRenderFallback && !hasRecentOrFreshBestAvailable) {
+      return language === "mr"
+        ? "सध्या फक्त जुना उपलब्ध डेटा दाखवला जात आहे."
+        : "Only older available data is being shown right now.";
+    }
+    if (isBestAvailableMode && !hasToday && hasBestAvailable) {
+      return language === "mr"
+        ? "आजचा डेटा उपलब्ध नाही. मागील उपलब्ध भाव दाखवले जात आहेत."
+        : "Today's data is not available. Showing latest available prices.";
+    }
+    if (showNoDataState) {
+      return language === "mr"
+        ? "सध्या या निवडीसाठी कोणताही वापरण्यायोग्य डेटा उपलब्ध नाही."
+        : "No usable data is available for this selection right now.";
+    }
+    return null;
+  };
+  const modeMessage = getModeMessage();
 
   const spokenLang = (selectedVoiceLang || language || "mr").toLowerCase().startsWith("mr")
     ? "mr"
@@ -447,23 +489,25 @@ export default function Comparison() {
         {!loading && !error && showBestAvailableDataMessage && (
           <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-center mb-3">
             <p className="text-blue-900 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Latest available ({maxFreshnessDays} {maxFreshnessDays === 1 ? "day" : "days"} old)
+              {modeMessage || `Latest available (${maxFreshnessDays} ${maxFreshnessDays === 1 ? "day" : "days"} old)`}
             </p>
-          </div>
-        )}
-
-        {!loading && !error && isBestAvailableMode && hasNonTodayDataInRanked && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center mb-3">
-            <p className="text-amber-900 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Not today&apos;s data
-            </p>
+            {latestAvailableDate && (
+              <p className="text-xs text-blue-800 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                Latest available date: {latestAvailableDate}
+              </p>
+            )}
+            {isBestAvailableMode && hasNonTodayDataInRanked && (
+              <p className="text-xs text-blue-800 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+                Not today&apos;s data
+              </p>
+            )}
           </div>
         )}
 
         {!loading && !error && showOldFallbackMessage && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-center mb-3">
             <p className="text-amber-900 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Showing older data (4–7 days old)
+              {modeMessage || "Showing older data (4–7 days old)"}
             </p>
           </div>
         )}
@@ -471,7 +515,7 @@ export default function Comparison() {
         {!loading && !error && showNoDataState && (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-center">
             <p className="text-slate-800 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {isTodayMode ? "No today's data available" : "No data"}
+              {modeMessage || (isTodayMode ? "No today's data available" : "No data")}
             </p>
             <div className="mt-3 flex justify-center">
               <SpeakerButton
