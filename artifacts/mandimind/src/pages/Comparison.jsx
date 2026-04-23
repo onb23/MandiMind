@@ -104,11 +104,7 @@ export default function Comparison() {
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
   const mandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
   const backendRanked = Array.isArray(compareData?.rankedMandis) ? compareData.rankedMandis : [];
-  const backendFallbackOld = Array.isArray(compareData?.fallbackOldMandis)
-    ? compareData.fallbackOldMandis
-    : Array.isArray(compareData?.fallbackOldRows)
-      ? compareData.fallbackOldRows
-      : [];
+  const backendFallbackOld = Array.isArray(compareData?.fallbackOldMandis) ? compareData.fallbackOldMandis : [];
   const rankingBasis = compareData?.rankingBasis || "fresh_recent_only";
   const bestConfidence = typeof compareData?.bestConfidence === "string" ? compareData.bestConfidence.toLowerCase() : "low";
   const freshnessCounts = compareData?.freshnessCounts || null;
@@ -117,20 +113,25 @@ export default function Comparison() {
   const bestMandiMessage = compareData?.bestMandiMessage || "";
   const coverageMessage = compareData?.coverageMessage || "";
   const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
-  const normalizeMandiItem = (item) => ({
-    ...item,
-    mandi: item?.mandi || "Unknown",
-    modePrice: Number.isFinite(item?.todayPrice)
-      ? item.todayPrice
-      : Number.isFinite(item?.price)
-        ? item.price
-        : Number.isFinite(item?.avgPrice)
-          ? item.avgPrice
-        : null,
-    avgPrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
-    modeFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
-    freshnessBucket: typeof item?.freshnessBucket === "string" ? item.freshnessBucket : null,
-  });
+  const normalizeMandiItem = (item = {}) => {
+    const safeItem = item && typeof item === "object" ? item : {};
+    return {
+      ...safeItem,
+      mandi: safeItem?.mandi || "Unknown",
+      modePrice: Number.isFinite(safeItem?.todayPrice)
+        ? safeItem.todayPrice
+        : Number.isFinite(safeItem?.price)
+          ? safeItem.price
+          : Number.isFinite(safeItem?.avgPrice)
+            ? safeItem.avgPrice
+          : null,
+      avgPrice: Number.isFinite(safeItem?.avgPrice) ? safeItem.avgPrice : null,
+      modeFreshnessDays: Number.isFinite(safeItem?.freshnessDays) ? safeItem.freshnessDays : null,
+      freshnessBucket: typeof safeItem?.freshnessBucket === "string" ? safeItem.freshnessBucket : null,
+      todayPrice: Number.isFinite(safeItem?.todayPrice) ? safeItem.todayPrice : null,
+      price: Number.isFinite(safeItem?.price) ? safeItem.price : null,
+    };
+  };
   const normalizedBackendRanked = backendRanked
     .map(normalizeMandiItem)
     .filter((item) => item.mandi !== "No mandi data")
@@ -188,17 +189,6 @@ export default function Comparison() {
   const bestMandi = rankedMandis.find((item) => item.mandi === bestMandiName) || null;
   const showBestMandiBadge = bestConfidence === "high";
   const bestLabel = t.bestMandi;
-  const comparableMandis = displayedMandis.filter((item) => Number.isFinite(item.todayPrice) && Number.isFinite(item.avgPrice));
-  const avgTodayPrice = comparableMandis.length
-    ? Math.round(comparableMandis.reduce((sum, item) => sum + item.todayPrice, 0) / comparableMandis.length)
-    : null;
-  const avgRecentPrice = comparableMandis.length
-    ? Math.round(comparableMandis.reduce((sum, item) => sum + item.avgPrice, 0) / comparableMandis.length)
-    : null;
-  const hasInsightData = Number.isFinite(avgTodayPrice) && Number.isFinite(avgRecentPrice) && avgRecentPrice > 0;
-  const comparisonGapPct = hasInsightData ? ((avgTodayPrice - avgRecentPrice) / avgRecentPrice) * 100 : null;
-  const similarityThresholdPct = 1;
-  const insightType = !hasInsightData ? null : comparisonGapPct > similarityThresholdPct ? "sell" : comparisonGapPct < -similarityThresholdPct ? "wait" : "neutral";
   const insightStyles = {
     sell: "bg-emerald-50 border-emerald-200 text-emerald-900",
     wait: "bg-amber-50 border-amber-200 text-amber-900",
@@ -233,6 +223,17 @@ export default function Comparison() {
     : (normalizedBackendRanked.length > 0 ? normalizedBackendRanked : normalizedMandis);
 
   const displayedMandis = primaryList;
+  const comparableMandis = displayedMandis.filter((item) => Number.isFinite(item?.todayPrice) && Number.isFinite(item?.avgPrice));
+  const avgTodayPrice = comparableMandis.length
+    ? Math.round(comparableMandis.reduce((sum, item) => sum + item.todayPrice, 0) / comparableMandis.length)
+    : null;
+  const avgRecentPrice = comparableMandis.length
+    ? Math.round(comparableMandis.reduce((sum, item) => sum + item.avgPrice, 0) / comparableMandis.length)
+    : null;
+  const hasInsightData = Number.isFinite(avgTodayPrice) && Number.isFinite(avgRecentPrice) && avgRecentPrice > 0;
+  const comparisonGapPct = hasInsightData ? ((avgTodayPrice - avgRecentPrice) / avgRecentPrice) * 100 : null;
+  const similarityThresholdPct = 1;
+  const insightType = !hasInsightData ? null : comparisonGapPct > similarityThresholdPct ? "sell" : comparisonGapPct < -similarityThresholdPct ? "wait" : "neutral";
   const shouldRenderRanked = displayedMandis.length > 0;
   const shouldRenderFallback = isBestAvailableMode && normalizedFallback.length > 0;
   const hasRecentOrFreshBestAvailable = isBestAvailableMode && (
@@ -401,7 +402,7 @@ export default function Comparison() {
               <span className="font-semibold text-slate-700">Coverage</span>: {coverageMessage || "—"}
               {freshnessCounts && (
                 <span className="ml-2 text-[11px] text-slate-500">
-                  ({`F ${freshnessCounts.freshCount ?? 0} · R ${freshnessCounts.recentCount ?? 0} · O ${freshnessCounts.oldCount ?? 0}`})
+                  ({`F ${freshnessCounts?.freshCount ?? 0} · R ${freshnessCounts?.recentCount ?? 0} · O ${freshnessCounts?.oldCount ?? 0}`})
                 </span>
               )}
             </p>
