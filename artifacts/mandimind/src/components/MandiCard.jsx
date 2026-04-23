@@ -2,37 +2,44 @@ import { useLanguage } from "../context/LanguageContext";
 import SpeakerButton from "./SpeakerButton";
 
 const getFreshnessBadge = (freshnessDays, forceBadge) => {
-  if (forceBadge === "LIVE") {
+  if (forceBadge === "FALLBACK_OLD") {
+    return {
+      label: "4–7 days old",
+      className: "bg-slate-100 text-slate-700 border border-slate-200",
+    };
+  }
+
+  if (freshnessDays === 0) {
     return {
       label: "LIVE",
       className: "bg-emerald-50 text-emerald-700 border border-emerald-100",
     };
   }
 
-  if (forceBadge === "RECENT") {
+  if (freshnessDays === 1) {
     return {
-      label: "RECENT",
+      label: "1 day old",
       className: "bg-amber-50 text-amber-700 border border-amber-100",
     };
   }
 
-  if (!Number.isFinite(freshnessDays) || freshnessDays >= 3) {
+  if (freshnessDays === 2) {
     return {
-      label: "STALE",
-      className: "bg-rose-50 text-rose-700 border border-rose-100",
+      label: "2 days old",
+      className: "bg-amber-50 text-amber-700 border border-amber-100",
     };
   }
 
-  if (freshnessDays <= 0) {
+  if (freshnessDays === 3) {
     return {
-      label: "LIVE",
-      className: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+      label: "3 days old",
+      className: "bg-orange-50 text-orange-700 border border-orange-100",
     };
   }
 
   return {
-    label: "RECENT",
-    className: "bg-amber-50 text-amber-700 border border-amber-100",
+    label: "4–7 days old",
+    className: "bg-slate-100 text-slate-700 border border-slate-200",
   };
 };
 
