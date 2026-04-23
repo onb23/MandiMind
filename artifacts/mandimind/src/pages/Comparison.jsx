@@ -213,23 +213,36 @@ export default function Comparison() {
   const hasToday = (compareData?.todayCount || 0) > 0
     || [...normalizedBackendRanked, ...normalizedMandis].some((row) => row?.modeFreshnessDays === 0)
     || [...backendRanked, ...mandis].some((row) => Number.isFinite(row?.todayPrice) && row.todayPrice > 0);
-  const freshCount = freshnessCounts?.freshCount ?? 0;
-  const recentCount = freshnessCounts?.recentCount ?? 0;
-  const hasFreshOrRecent = freshCount > 0 || recentCount > 0;
-  const hasBackendRanked = normalizedBackendRanked.length > 0;
-  const hasMandis = normalizedMandis.length > 0;
-  const hasBestAvailable = hasFreshOrRecent
-    || hasBackendRanked
-    || (backendFallbackOld.length || 0) > 0
-    || hasMandis;
-  const hasRankedForBest = rankedMandis.length > 0;
-  const hasOldRows = normalizedFallback.length > 0;
-  const isTodayMode = compareMode === "today";
-  const isBestAvailableMode = compareMode === "latest";
-  const shouldRenderRanked = isTodayMode
-    ? hasToday && rankedMandis.length > 0
-    : hasRankedForBest;
-  const shouldRenderFallback = isBestAvailableMode && hasOldRows;
+  const todayCount = compareData?.todayCount ?? 0;
+const apiRecentCount = compareData?.recentCount ?? 0;
+const usableCount = compareData?.usableCount ?? 0;
+
+const hasBackendRanked = normalizedBackendRanked.length > 0;
+const hasMandis = normalizedMandis.length > 0;
+const hasFallbackOld = normalizedFallback.length > 0;
+
+const isTodayMode = compareMode === "today";
+const isBestAvailableMode = compareMode === "latest";
+
+const hasTodayData =
+  todayCount > 0 ||
+  normalizedMandis.some((row) => Number.isFinite(row?.todayPrice) && row.todayPrice > 0) ||
+  normalizedMandis.some((row) => row?.modeFreshnessDays === 0);
+
+const hasBestAvailableData =
+  usableCount > 0 ||
+  apiRecentCount > 0 ||
+  hasMandis ||
+  hasBackendRanked ||
+  hasFallbackOld ||
+  compareData?.status === "recent_has_data" ||
+  compareData?.status === "kv_fallback";
+
+const primaryList = isTodayMode
+  ? normalizedMandis.filter((item) => Number.isFinite(item?.todayPrice) && item.todayPrice > 0)
+  : (normalizedBackendRanked.length > 0 ? normalizedBackendRanked : normalizedMandis);
+
+const showNoDataState = isTodayMode ? !hasTodayData : !hasBestAvailableData;
   const maxFreshnessDays = rankedMandis.reduce((max, item) => {
     if (!Number.isFinite(item.modeFreshnessDays)) return max;
     return Math.max(max, item.modeFreshnessDays);
