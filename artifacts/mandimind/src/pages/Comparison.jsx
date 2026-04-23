@@ -124,6 +124,8 @@ export default function Comparison() {
       ? item.todayPrice
       : Number.isFinite(item?.price)
         ? item.price
+        : Number.isFinite(item?.avgPrice)
+          ? item.avgPrice
         : null,
     avgPrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
     modeFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
@@ -199,16 +201,26 @@ export default function Comparison() {
   };
   const hasToday = (compareData?.todayCount || 0) > 0
     || (compareData?.mandis || []).some((row) => row?.freshnessDays === 0);
-  const hasBestAvailable = (backendRanked.length || 0) > 0 || (backendFallbackOld.length || 0) > 0;
+  const freshCount = freshnessCounts?.freshCount ?? 0;
+  const recentCount = freshnessCounts?.recentCount ?? 0;
+  const hasFreshOrRecent = freshCount > 0 || recentCount > 0;
+  const hasBestAvailable = hasFreshOrRecent || (backendFallbackOld.length || 0) > 0;
   const hasRankedForBest = rankedMandis.length > 0;
   const hasOldRows = normalizedFallback.length > 0;
   const isTodayMode = compareMode === "today";
   const isBestAvailableMode = compareMode === "latest";
-  const shouldRenderRanked = isTodayMode ? hasToday && rankedMandis.length > 0 : hasRankedForBest;
+  const shouldRenderRanked = isTodayMode
+    ? hasToday && rankedMandis.length > 0
+    : (hasFreshOrRecent ? rankedMandis.length > 0 : hasRankedForBest);
   const shouldRenderFallback = isBestAvailableMode && hasOldRows;
+  const maxFreshnessDays = rankedMandis.reduce((max, item) => {
+    if (!Number.isFinite(item.modeFreshnessDays)) return max;
+    return Math.max(max, item.modeFreshnessDays);
+  }, 0);
+  const hasNonTodayDataInRanked = rankedMandis.some((item) => Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays > 0);
   const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailable && hasRankedForBest;
   const showOldFallbackMessage = isBestAvailableMode && hasBestAvailable && !hasRankedForBest && shouldRenderFallback;
-  const showNoDataState = isTodayMode ? !hasToday : !hasBestAvailable;
+  const showNoDataState = isTodayMode ? !hasToday : !(hasFreshOrRecent || shouldRenderFallback);
 
   const spokenLang = (selectedVoiceLang || language || "mr").toLowerCase().startsWith("mr")
     ? "mr"
@@ -435,7 +447,15 @@ export default function Comparison() {
         {!loading && !error && showBestAvailableDataMessage && (
           <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-center mb-3">
             <p className="text-blue-900 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Showing latest available data
+              Latest available ({maxFreshnessDays} {maxFreshnessDays === 1 ? "day" : "days"} old)
+            </p>
+          </div>
+        )}
+
+        {!loading && !error && isBestAvailableMode && hasNonTodayDataInRanked && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center mb-3">
+            <p className="text-amber-900 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              Not today&apos;s data
             </p>
           </div>
         )}
@@ -451,7 +471,7 @@ export default function Comparison() {
         {!loading && !error && showNoDataState && (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-center">
             <p className="text-slate-800 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              No data
+              {isTodayMode ? "No today's data available" : "No data"}
             </p>
             <div className="mt-3 flex justify-center">
               <SpeakerButton
