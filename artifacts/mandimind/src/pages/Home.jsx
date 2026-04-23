@@ -27,6 +27,7 @@ export default function Home() {
   const [cropError, setCropError] = useState("");
 
   const [mandiOptions, setMandiOptions] = useState([]);
+  const [mandiStatus, setMandiStatus] = useState("");
   const [mandiFreshnessDays, setMandiFreshnessDays] = useState(null);
   const [mandiDataCounts, setMandiDataCounts] = useState({ todayCount: 0, usableCount: 0 });
   const [mandiLoading, setMandiLoading] = useState(false);
@@ -37,7 +38,8 @@ export default function Home() {
   }, [mandiOptions, priceType]);
   const hasVisibleMandis = visibleMandis.length > 0;
   const hasTodayData = (mandiDataCounts?.todayCount ?? 0) > 0;
-  const hasRecentData = (mandiDataCounts?.usableCount ?? 0) > 0;
+  const hasRecentData = (mandiDataCounts?.usableCount ?? 0) > 0
+    || (mandiStatus === "recent_has_data" && mandiOptions.length > 0);
   const hasAnyUsableMandis = hasTodayData || hasRecentData || mandiOptions.some((item) => item?.isUsable);
   const hasTodayMandis = hasTodayData || mandiOptions.some((item) => Boolean(item?.todayRow));
   const hasRecentMandis = mandiOptions.some((item) => {
@@ -64,7 +66,13 @@ export default function Home() {
     && isRecentMode;
 
   const todayModeEmptyState = selectedCrop && !mandiLoading && !mandiError && isTodayMode && !hasTodayMandis;
-  const recentModeEmptyState = selectedCrop && !mandiLoading && !mandiError && isRecentMode && !hasRecentData && !hasTodayData;
+  const recentModeEmptyState = selectedCrop
+    && !mandiLoading
+    && !mandiError
+    && isRecentMode
+    && !hasRecentData
+    && !hasTodayData
+    && mandiOptions.length === 0;
 
   const modeAvailabilityBanner = useMemo(() => {
     if (!selectedCrop || mandiLoading || mandiError) return "";
@@ -139,6 +147,7 @@ export default function Home() {
     async function loadMandis() {
       if (!selectedCrop) {
         setMandiOptions([]);
+        setMandiStatus("");
         setMandiError("");
         setMandiDataCounts({ todayCount: 0, usableCount: 0 });
         setMandiLoading(false);
@@ -154,15 +163,21 @@ export default function Home() {
 
       if (result?.source === "error") {
         setMandiOptions([]);
+        setMandiStatus("");
         setMandiFreshnessDays(null);
         setMandiDataCounts({ todayCount: 0, usableCount: 0 });
         setMandiError(t.liveMandiTemporarilyUnavailable);
       } else {
         setMandiOptions(result?.mandis || []);
+        setMandiStatus(typeof result?.status === "string" ? result.status : "");
         setMandiFreshnessDays(Number.isFinite(result?.freshnessDays) ? result.freshnessDays : null);
         setMandiDataCounts({
           todayCount: Number.isFinite(result?.todayCount) ? result.todayCount : 0,
-          usableCount: Number.isFinite(result?.usableCount) ? result.usableCount : 0,
+          usableCount: Number.isFinite(result?.usableCount)
+            ? result.usableCount
+            : Array.isArray(result?.mandis)
+              ? result.mandis.length
+              : 0,
         });
         if (selectedMandi && !(result?.mandis || []).some((item) => item.mandi === selectedMandi)) {
           setSelectedMandi("");
@@ -184,6 +199,12 @@ export default function Home() {
       setSelectedMandi("");
     }
   }, [priceType, selectedMandi, visibleMandis]);
+
+  useEffect(() => {
+    if (!selectedCrop || priceType !== "latest") return;
+    if (selectedMandi || visibleMandis.length === 0) return;
+    setSelectedMandi(visibleMandis[0].mandi);
+  }, [selectedCrop, priceType, selectedMandi, visibleMandis]);
 
   useEffect(() => {
     if (!selectedCrop || mandiLoading || mandiError) return;
