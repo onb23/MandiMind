@@ -104,6 +104,38 @@ interface CompareMandiDateEntry {
   variety?: string;
 }
 
+
+
+type FreshnessBucket = "fresh" | "recent" | "old" | "expired";
+
+type FreshnessStatus =
+  | "today_has_data"
+  | "today_no_data_recent_exists"
+  | "recent_has_data"
+  | "only_old_data"
+  | "no_usable_data";
+
+interface FreshnessSplit<T> {
+  fresh: T[];
+  recent: T[];
+  old: T[];
+  expired: T[];
+  invalid: T[];
+  latestAvailableDate: string | null;
+  latestAvailableTs: number | null;
+  counts: {
+    freshCount: number;
+    recentCount: number;
+    oldCount: number;
+    expiredCount: number;
+  };
+  booleans: {
+    hasFresh: boolean;
+    hasRecent: boolean;
+    hasOld: boolean;
+  };
+}
+
 interface RecommendationTraceStage {
   count: number;
   sample: Array<{ market: string; date: string; commodity: string }>;
@@ -171,6 +203,128 @@ function getFreshnessDays(
   const diffMs = todayTs - ts;
   if (diffMs < 0) return null;
   return Math.floor(diffMs / DAY_MS);
+}
+
+function getFreshnessBucket(dateStr: string, todayTs = startOfUtcDayTs()): FreshnessBucket {
+  const days = getFreshnessDays(dateStr, todayTs);
+  if (days === null || days < 0) return "expired";
+  if (days === 0) return "fresh";
+  if (days <= 3) return "recent";
+  if (days <= 7) return "old";
+  return "expired";
+}
+
+function splitRecordsByFreshness<T extends { date: string }>(
+  records: T[],
+  todayTs = startOfUtcDayTs(),
+): FreshnessSplit<T> {
+  const split: FreshnessSplit<T> = {
+    fresh: [],
+    recent: [],
+    old: [],
+    expired: [],
+    invalid: [],
+    latestAvailableDate: null,
+    latestAvailableTs: null,
+    counts: { freshCount: 0, recentCount: 0, oldCount: 0, expiredCount: 0 },
+    booleans: { hasFresh: false, hasRecent: false, hasOld: false },
+  };
+
+  for (const row of records) {
+    const ts = parseArrivalDate(row.date);
+    if (!ts) {
+      split.invalid.push(row);
+      continue;
+    }
+    const bucket = getFreshnessBucket(row.date, todayTs);
+    if (bucket === "fresh") split.fresh.push(row);
+    else if (bucket === "recent") split.recent.push(row);
+    else if (bucket === "old") split.old.push(row);
+    else split.expired.push(row);
+  }
+
+  const usableFreshRecent = [...split.fresh, ...split.recent];
+  const latestUsable = usableFreshRecent.sort(
+    (a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date),
+  )[0];
+  split.latestAvailableDate = latestUsable?.date ?? null;
+  split.latestAvailableTs = latestUsable ? parseArrivalDate(latestUsable.date) : null;
+
+  split.counts = {
+    freshCount: split.fresh.length,
+    recentCount: split.recent.length,
+    oldCount: split.old.length,
+    expiredCount: split.expired.length + split.invalid.length,
+  };
+  split.booleans = {
+    hasFresh: split.fresh.length > 0,
+    hasRecent: split.recent.length > 0,
+    hasOld: split.old.length > 0,
+  };
+  return split;
+}
+
+function getFreshnessWeight(freshnessDays: number | null): number {
+  if (freshnessDays === null) return 0;
+  if (freshnessDays <= 0) return 1;
+  if (freshnessDays === 1) return 0.85;
+  if (freshnessDays === 2) return 0.65;
+  if (freshnessDays === 3) return 0.45;
+  return 0;
+}
+
+type RankingIntent = "SELL" | "BUY";
+
+function getDecisionScore(
+  price: number,
+  freshnessDays: number | null,
+  intent: RankingIntent,
+): number {
+  const weight = getFreshnessWeight(freshnessDays);
+  if (!Number.isFinite(price) || price <= 0 || weight <= 0) return 0;
+  return intent === "BUY" ? price / weight : price * weight;
+}
+
+function buildBestAvailableDataset<T extends { date: string }>(
+  records: T[],
+  {
+    todayTs = startOfUtcDayTs(),
+    mode = "bestAvailable",
+  }: { todayTs?: number; mode?: "todayOnly" | "bestAvailable" } = {},
+) {
+  const split = splitRecordsByFreshness(records, todayTs);
+  const primaryRecords =
+    mode === "todayOnly"
+      ? split.fresh
+      : [...split.fresh, ...split.recent];
+  const fallbackOldRecords = split.old;
+  const latestPrimary = [...primaryRecords].sort(
+    (a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date),
+  )[0];
+
+  let status: FreshnessStatus = "no_usable_data";
+  if (split.booleans.hasFresh) status = "today_has_data";
+  else if (split.booleans.hasRecent)
+    status = mode === "todayOnly" ? "today_no_data_recent_exists" : "recent_has_data";
+  else if (split.booleans.hasOld) status = "only_old_data";
+
+  return {
+    split,
+    status,
+    primaryRecords,
+    fallbackOldRecords,
+    latestAvailableDate: split.latestAvailableDate,
+    latestPrimaryDate: latestPrimary?.date ?? null,
+    freshnessDays: latestPrimary ? getFreshnessDays(latestPrimary.date, todayTs) : null,
+  };
+}
+
+function addFreshnessMeta<T extends { date: string }>(rows: T[], todayTs = startOfUtcDayTs()) {
+  return rows.map((row) => ({
+    ...row,
+    freshnessDays: getFreshnessDays(row.date, todayTs),
+    freshnessBucket: getFreshnessBucket(row.date, todayTs),
+  }));
 }
 
 function selectWithFallback(
@@ -679,24 +833,28 @@ function buildCompareResponseFromRows(
   rows: PriceRecord[],
   days: number,
   metadata: {
-    freshnessDays: number | null;
     source: "live" | "fallback" | "kv";
+    mode?: "todayOnly" | "bestAvailable";
+    rankingIntent?: RankingIntent;
     debug?: CacheDebugFields;
   },
   cacheKey: string,
 ): Response {
+  const todayTs = startOfUtcDayTs();
+  const mode = metadata.mode ?? "bestAvailable";
+  const rankingIntent = metadata.rankingIntent ?? "SELL";
   const usableRows = rows.filter((r) => Boolean(r.market && r.date));
   const sourceRows = usableRows.length > 0 ? usableRows : rows;
+  const dataset = buildBestAvailableDataset(sourceRows, { todayTs, mode });
+  const rankingRows = dataset.primaryRecords;
+  const oldRows = dataset.fallbackOldRecords;
   const byMandi = new Map<string, PriceRecord[]>();
-  for (const row of sourceRows) {
+  for (const row of rankingRows) {
     if (!byMandi.has(row.market)) byMandi.set(row.market, []);
     byMandi.get(row.market)!.push(row);
   }
 
-  const latestDate =
-    sourceRows
-      .map((r) => r.date)
-      .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+  const latestDate = dataset.latestPrimaryDate;
 
   const mandiSummaries = Array.from(byMandi.entries())
     .map(([mandi, recs]) => {
@@ -712,22 +870,43 @@ function buildCompareResponseFromRows(
           )
         : 0;
       const freshnessDays = getFreshnessDays(latest.date);
+      const freshnessWeight = getFreshnessWeight(freshnessDays);
+      const weightedScore = Number(
+        getDecisionScore(latest.modal_price, freshnessDays, rankingIntent).toFixed(2),
+      );
       return {
         mandi,
         todayPrice: latest.modal_price,
+        weightedScore,
+        freshnessWeight,
         avgPrice,
         lastUpdated: latest.date,
         stale: isDataStale(latest.date),
         freshnessDays,
+        freshnessBucket: getFreshnessBucket(latest.date, todayTs),
       };
     })
     .sort((a, b) => {
+      const freshnessPriority = (value: number | null) =>
+        value === 0 ? 3 : value !== null && value <= 3 ? 2 : 0;
+      const byFreshness = freshnessPriority(b.freshnessDays) - freshnessPriority(a.freshnessDays);
+      if (byFreshness !== 0) return byFreshness;
+      const byScore = rankingIntent === "BUY"
+        ? a.weightedScore - b.weightedScore
+        : b.weightedScore - a.weightedScore;
+      if (byScore !== 0) return byScore;
       const byNewest =
         parseArrivalDate(b.lastUpdated) - parseArrivalDate(a.lastUpdated);
       if (byNewest !== 0) return byNewest;
       return b.todayPrice - a.todayPrice;
     });
 
+  const oldRowsWithMeta = addFreshnessMeta(oldRows, todayTs);
+  const recentUsableCount = dataset.split.counts.freshCount + dataset.split.counts.recentCount;
+  const hasEnoughForBestMandi =
+    dataset.split.counts.freshCount >= 3 || recentUsableCount >= 5;
+  const rankedMandis = mandiSummaries;
+  const bestMandi = hasEnoughForBestMandi ? rankedMandis[0] ?? null : null;
   const data = {
     mandis:
       mandiSummaries.length > 0
@@ -741,9 +920,24 @@ function buildCompareResponseFromRows(
               stale: true,
             },
           ],
+    fallbackOldMandis: oldRowsWithMeta,
+    latestAvailableDate: dataset.latestAvailableDate,
     lastUpdated: latestDate,
-    freshnessDays: metadata.freshnessDays,
+    freshnessDays: dataset.freshnessDays,
     source: metadata.source,
+    freshnessCounts: dataset.split.counts,
+    coverageMessage: `Fresh: ${dataset.split.counts.freshCount}, Recent: ${dataset.split.counts.recentCount}`,
+    ...dataset.split.booleans,
+    status: rankedMandis.length === 0 ? "no_usable_data" : dataset.status,
+    rankedMandis,
+    bestMandi,
+    bestConfidence: hasEnoughForBestMandi ? "high" : "low",
+    bestMandiMessage: hasEnoughForBestMandi
+      ? "Based on strong recent data"
+      : "Limited data, use caution",
+    rankingBasis: "fresh_recent_only",
+    rankingIntent,
+    mode,
     kvAvailable: metadata.debug?.kvAvailable ?? false,
     cacheKey: metadata.debug?.cacheKey ?? cacheKey,
     cacheReadAttempted: metadata.debug?.cacheReadAttempted ?? false,
@@ -764,14 +958,18 @@ function buildCompareRecentWindowResponse(
   cacheKey: string,
   debug?: CacheDebugFields,
 ): Response {
-  const deduped = dedupePriceRowsByMandiDate(rows).filter((r) => {
+  const mode = includeTodayOnly ? "todayOnly" : "bestAvailable";
+  const rankingIntent: RankingIntent = "SELL";
+  const deduped = dedupePriceRowsByMandiDate(rows);
+  const dataset = buildBestAvailableDataset(deduped, { todayTs, mode });
+  const rankingRows = dataset.primaryRecords.filter((r) => {
     const freshnessDays = getFreshnessDays(r.date, todayTs);
     if (freshnessDays === null || freshnessDays < 0) return false;
     if (includeTodayOnly) return freshnessDays === 0;
     return freshnessDays <= Math.max(1, windowDays);
   });
   const byMandi = new Map<string, PriceRecord[]>();
-  for (const row of deduped) {
+  for (const row of rankingRows) {
     if (!row.market) continue;
     if (!byMandi.has(row.market)) byMandi.set(row.market, []);
     byMandi.get(row.market)!.push(row);
@@ -799,17 +997,38 @@ function buildCompareRecentWindowResponse(
       return {
         mandi,
         todayPrice: latest?.modal_price ?? 0,
+        weightedScore: latest
+          ? Number(
+              getDecisionScore(
+                latest.modal_price ?? 0,
+                getFreshnessDays(latest.date, todayTs),
+                rankingIntent,
+              ).toFixed(2),
+            )
+          : 0,
         avgPrice,
         lastUpdated: latest?.date ?? null,
         stale: latest ? isDataStale(latest.date) : true,
         freshnessDays: latest ? getFreshnessDays(latest.date, todayTs) : null,
+        freshnessBucket: latest
+          ? getFreshnessBucket(latest.date, todayTs)
+          : null,
         entries,
       };
     })
     .sort(
-      (a, b) =>
-        parseArrivalDate(b.lastUpdated ?? "") -
-          parseArrivalDate(a.lastUpdated ?? "") || b.todayPrice - a.todayPrice,
+      (a, b) => {
+        const freshnessPriority = (value: number | null) =>
+          value === 0 ? 3 : value !== null && value <= 3 ? 2 : 0;
+        const byFreshness = freshnessPriority(b.freshnessDays) - freshnessPriority(a.freshnessDays);
+        if (byFreshness !== 0) return byFreshness;
+        const byScore = rankingIntent === "BUY"
+          ? a.weightedScore - b.weightedScore
+          : b.weightedScore - a.weightedScore;
+        if (byScore !== 0) return byScore;
+        return parseArrivalDate(b.lastUpdated ?? "") -
+          parseArrivalDate(a.lastUpdated ?? "") || b.todayPrice - a.todayPrice;
+      },
     );
 
   const availableDates = [
@@ -824,25 +1043,44 @@ function buildCompareRecentWindowResponse(
 
   const body = {
     mandis,
+    fallbackOldRecords: addFreshnessMeta(dataset.fallbackOldRecords, todayTs),
     source,
     windowDays: includeTodayOnly ? 1 : windowDays,
     availableDates,
-    totalRecordCount: deduped.length,
+    totalRecordCount: rankingRows.length,
     totalMandiCount: mandis.length,
     freshnessDays: mandis[0]?.freshnessDays ?? null,
-    lastUpdated: availableDates[0] ?? null,
+    latestAvailableDate: dataset.latestAvailableDate,
+    lastUpdated: dataset.latestPrimaryDate ?? null,
+    freshnessCounts: dataset.split.counts,
+    coverageMessage: `Fresh: ${dataset.split.counts.freshCount}, Recent: ${dataset.split.counts.recentCount}`,
+    ...dataset.split.booleans,
+    status: mandis.length === 0 ? "no_usable_data" : dataset.status,
+    rankedMandis: mandis,
+    bestMandi:
+      dataset.split.counts.freshCount >= 3 ||
+      dataset.split.counts.freshCount + dataset.split.counts.recentCount >= 5
+        ? mandis[0] ?? null
+        : null,
+    bestConfidence:
+      dataset.split.counts.freshCount >= 3 ||
+      dataset.split.counts.freshCount + dataset.split.counts.recentCount >= 5
+        ? "high"
+        : "low",
+    bestMandiMessage:
+      dataset.split.counts.freshCount >= 3 ||
+      dataset.split.counts.freshCount + dataset.split.counts.recentCount >= 5
+        ? "Based on strong recent data"
+        : "Limited data, use caution",
+    rankingBasis: "fresh_recent_only",
+    rankingIntent,
+    mode,
     kvAvailable: debug?.kvAvailable ?? false,
     cacheKey: debug?.cacheKey ?? cacheKey,
     cacheReadAttempted: debug?.cacheReadAttempted ?? false,
     cacheHit: debug?.cacheHit ?? false,
     cacheWriteAttempted: debug?.cacheWriteAttempted ?? false,
     cacheWriteSucceeded: debug?.cacheWriteSucceeded ?? false,
-    status:
-      mandis.length === 0
-        ? includeTodayOnly
-          ? "no_today_data"
-          : "no_recent_data"
-        : "ok",
   };
   cache.set(cacheKey, { data: body, ts: Date.now() });
   return json(body);
@@ -955,6 +1193,11 @@ async function handlePrices(
   const market = params.get("market") ?? "";
   const state = params.get("state") ?? "Maharashtra";
   const days = Number(params.get("days") ?? "30");
+  const mode =
+    (params.get("mode") as "todayOnly" | "bestAvailable" | null) ??
+    (days <= 1 ? "todayOnly" : "bestAvailable");
+  const rankingIntent: RankingIntent =
+    (params.get("intent") ?? "SELL").toUpperCase() === "BUY" ? "BUY" : "SELL";
 
   if (!crop || !market) {
     return json({ error: "crop and market are required" }, 400);
@@ -1071,26 +1314,54 @@ async function handlePrices(
       return json(emptyResponse);
     }
 
-    const { records: fallbackRecords, metadata } = selectWithFallback(
-      selectedMarketRecords,
-    );
-    const trimmed = (
-      fallbackRecords.length > 0 ? fallbackRecords : selectedMarketRecords
-    ).slice(-days);
+    const todayTs = startOfUtcDayTs();
+    const freshnessDataset = buildBestAvailableDataset(selectedMarketRecords, {
+      todayTs,
+      mode,
+    });
+    const trimmed = freshnessDataset.primaryRecords.slice(-days);
+    const oldRows = freshnessDataset.fallbackOldRecords.slice(-days);
     const prices = trimmed.map((r) => r.modal_price);
     const latest = trimmed[trimmed.length - 1] ?? null;
+    const rankedMandis = addFreshnessMeta(trimmed, todayTs).map((row) => ({
+      ...row,
+      weightedScore: Number(
+        getDecisionScore(row.modal_price, row.freshnessDays, rankingIntent).toFixed(2),
+      ),
+    }));
+    rankedMandis.sort((a, b) =>
+      rankingIntent === "BUY" ? a.weightedScore - b.weightedScore : b.weightedScore - a.weightedScore,
+    );
+    const strongCoverage =
+      freshnessDataset.split.counts.freshCount >= 3 ||
+      freshnessDataset.split.counts.freshCount + freshnessDataset.split.counts.recentCount >= 5;
 
     const data = {
-      data: trimmed,
+      data: addFreshnessMeta(trimmed, todayTs),
+      fallbackOldData: addFreshnessMeta(oldRows, todayTs),
+      rankedMandis,
+      bestMandi: strongCoverage ? rankedMandis[0] ?? null : null,
+      bestConfidence: strongCoverage ? "high" : "low",
+      bestMandiMessage: strongCoverage
+        ? "Based on strong recent data"
+        : "Limited data, use caution",
+      rankingBasis: "fresh_recent_only",
+      rankingIntent,
       currentPrice: latest?.modal_price ?? null,
       priceRange: {
         low: prices.length ? Math.min(...prices) : null,
         high: prices.length ? Math.max(...prices) : null,
       },
       lastUpdated: latest?.date ?? null,
+      latestAvailableDate: freshnessDataset.latestAvailableDate,
       stale: latest ? isDataStale(latest.date) : true,
-      freshnessDays: metadata.freshnessDays,
-      source: metadata.source,
+      freshnessDays: freshnessDataset.freshnessDays,
+      source: mode === "todayOnly" ? "live-today" : "live-best-available",
+      freshnessCounts: freshnessDataset.split.counts,
+      coverageMessage: `Fresh: ${freshnessDataset.split.counts.freshCount}, Recent: ${freshnessDataset.split.counts.recentCount}`,
+      ...freshnessDataset.split.booleans,
+      status: rankedMandis.length === 0 ? "no_usable_data" : freshnessDataset.status,
+      mode,
       requestedMarket: market,
       matchedMarket,
       matchedMarketCount: selectedMarketRecords.length,
@@ -1216,6 +1487,11 @@ async function handleCompare(
   const crop = params.get("crop") ?? "";
   const state = params.get("state") ?? "Maharashtra";
   const days = Number(params.get("days") ?? "7");
+  const requestedMode = params.get("mode");
+  const mode: "todayOnly" | "bestAvailable" =
+    requestedMode === "todayOnly" || days <= 1 ? "todayOnly" : "bestAvailable";
+  const rankingIntent: RankingIntent =
+    (params.get("intent") ?? "SELL").toUpperCase() === "BUY" ? "BUY" : "SELL";
 
   if (!crop) {
     return json({ error: "crop is required" }, 400);
@@ -1245,8 +1521,8 @@ async function handleCompare(
 
   try {
     const todayTs = startOfUtcDayTs();
-    if (days <= 3) {
-      const includeTodayOnly = days <= 1;
+    if (days <= 3 || mode === "todayOnly") {
+      const includeTodayOnly = mode === "todayOnly";
       const windowDays = includeTodayOnly ? 1 : 3;
       const dateWindow = getRecentDateWindow(todayTs, windowDays);
       const liveRows: PriceRecord[] = [];
@@ -1361,8 +1637,9 @@ async function handleCompare(
           kvRows,
           days,
           {
-            freshnessDays: getFreshnessDays(kvRows[0]?.date ?? "", todayTs),
             source: "kv",
+            mode,
+            rankingIntent,
             debug: compareDebug,
           },
           cacheKey,
@@ -1386,15 +1663,13 @@ async function handleCompare(
     }
 
     const selected = selectWithFallback(finalRows, todayTs);
-    const candidateRecords =
-      selected.records.length > 0 ? selected.records : finalRows;
+    const candidateRecords = selected.records.length > 0 ? selected.records : finalRows;
     const usableRows = candidateRecords.filter((r) =>
       Boolean(r.market && r.commodity && r.date),
     );
     let finalCandidateRows =
       usableRows.length > 0 ? usableRows : candidateRecords;
     let source: "live" | "fallback" | "kv" = selected.metadata.source;
-    let freshnessDays = selected.metadata.freshnessDays;
 
     const hasRecentApiRows = finalCandidateRows.some((r) => {
       const d = getFreshnessDays(r.date, todayTs);
@@ -1407,13 +1682,11 @@ async function handleCompare(
       if (kvRows.length > 0) {
         finalCandidateRows = kvRows;
         source = "kv";
-        freshnessDays = getFreshnessDays(kvRows[0]?.date ?? "", todayTs);
         compareDebug.cacheHit = true;
         compareDebug.source = "kv";
       } else {
         finalCandidateRows = [];
         source = "fallback";
-        freshnessDays = null;
         compareDebug.source = "fallback";
       }
     } else {
@@ -1432,8 +1705,9 @@ async function handleCompare(
       finalCandidateRows,
       days,
       {
-        freshnessDays,
         source,
+        mode,
+        rankingIntent,
         debug: {
           ...compareDebug,
           source,
@@ -1578,6 +1852,9 @@ async function handleRecommendation(
   }
 
   const commodity = CROP_MAP[crop.toLowerCase()] ?? crop;
+  const mode =
+    (params.get("mode") as "todayOnly" | "bestAvailable" | null) ??
+    "bestAvailable";
   const tracingCrop = "Onion";
   const traceEnabled =
     commodity.trim().toLowerCase() === tracingCrop.toLowerCase();
@@ -1610,9 +1887,22 @@ async function handleRecommendation(
         Number.isFinite(r.modal_price) &&
         r.modal_price > 0,
     );
-    const finalRecords = [...usable].sort(
-      (a, b) => b.modal_price - a.modal_price,
-    );
+    const todayTs = startOfUtcDayTs();
+    const freshnessDataset = buildBestAvailableDataset(usable, { todayTs, mode });
+    const rankingUsable = freshnessDataset.primaryRecords;
+    const finalRecords = [...rankingUsable].sort((a, b) => {
+      const aDays = getFreshnessDays(a.date, todayTs);
+      const bDays = getFreshnessDays(b.date, todayTs);
+      const freshnessPriority = (value: number | null) =>
+        value === 0 ? 3 : value !== null && value <= 3 ? 2 : 0;
+      const byFreshness = freshnessPriority(bDays) - freshnessPriority(aDays);
+      if (byFreshness !== 0) return byFreshness;
+      const byWeighted =
+        b.modal_price * getFreshnessWeight(bDays) -
+        a.modal_price * getFreshnessWeight(aDays);
+      if (byWeighted !== 0) return byWeighted;
+      return b.modal_price - a.modal_price;
+    });
 
     const cropUniverseWindowDays = 15;
     const cropUniverseRecords = await fetchDataGov(
@@ -1674,8 +1964,8 @@ async function handleRecommendation(
           sample: sampleRecords(afterMandiNormalization),
         } satisfies RecommendationTraceStage,
         afterUsabilityFiltering: {
-          count: usable.length,
-          sample: sampleRecords(usable),
+          count: rankingUsable.length,
+          sample: sampleRecords(rankingUsable),
         } satisfies RecommendationTraceStage,
         finalRecordsReturned: {
           count: finalRecords.length,
@@ -1688,13 +1978,18 @@ async function handleRecommendation(
       console.log("[recommendation-trace]", JSON.stringify(pipelineTrace));
     }
 
-    if (!usable.length) {
+    if (!rankingUsable.length) {
       return json({
         action: "CHECK",
         confidence: "low",
-        reason: "No usable mandi price records found for this crop.",
+        reason: "No fresh/recent mandi price records found for this crop.",
         summary: "No recommendation available.",
         markets: [],
+        status: freshnessDataset.status,
+        latestAvailableDate: freshnessDataset.latestAvailableDate,
+        freshnessCounts: freshnessDataset.split.counts,
+        coverageMessage: `Fresh: ${freshnessDataset.split.counts.freshCount}, Recent: ${freshnessDataset.split.counts.recentCount}`,
+        ...freshnessDataset.split.booleans,
         debugTrace: traceEnabled ? pipelineTrace : undefined,
       });
     }
@@ -1707,7 +2002,7 @@ async function handleRecommendation(
       sorted.reduce((sum, r) => sum + r.modal_price, 0) / sorted.length,
     );
 
-    const current = usable[0];
+    const current = rankingUsable[0];
     const gapFromBest = best.modal_price - current.modal_price;
 
     let action = "CHECK OTHER MANDI";
@@ -1745,6 +2040,18 @@ async function handleRecommendation(
       marketsChecked: sorted.length,
       lastUpdated: best.date,
       stale: isDataStale(best.date),
+      latestAvailableDate: freshnessDataset.latestAvailableDate,
+      freshnessCounts: freshnessDataset.split.counts,
+      coverageMessage: `Fresh: ${freshnessDataset.split.counts.freshCount}, Recent: ${freshnessDataset.split.counts.recentCount}`,
+      ...freshnessDataset.split.booleans,
+      status: freshnessDataset.status,
+      mode,
+      bestMandiConfidence:
+        freshnessDataset.split.counts.freshCount + freshnessDataset.split.counts.recentCount >= 5
+          ? "high"
+          : "limited",
+      limitedConfidence:
+        freshnessDataset.split.counts.freshCount + freshnessDataset.split.counts.recentCount < 5,
       debugTrace: traceEnabled ? pipelineTrace : undefined,
     });
   } catch {
