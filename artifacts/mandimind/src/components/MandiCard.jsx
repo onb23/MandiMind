@@ -75,6 +75,7 @@ const getUpdatedLabel = (freshnessDays, t) => {
 
 export default function MandiCard({
   mandi,
+  price,
   todayPrice,
   avgPrice,
   stale,
@@ -92,9 +93,10 @@ export default function MandiCard({
 }) {
   const { t } = useLanguage();
 
-  const displayPrice = todayPrice > 0 ? `₹${todayPrice.toLocaleString("en-IN")}` : "—";
+  const effectivePrice = Number.isFinite(price) ? price : todayPrice;
+  const displayPrice = effectivePrice > 0 ? `₹${effectivePrice.toLocaleString("en-IN")}` : "—";
   const displayAvg = avgPrice > 0 ? `₹${avgPrice.toLocaleString("en-IN")}` : "—";
-  const trendDelta = Number.isFinite(todayPrice) && Number.isFinite(avgPrice) ? todayPrice - avgPrice : null;
+  const trendDelta = Number.isFinite(effectivePrice) && Number.isFinite(avgPrice) ? effectivePrice - avgPrice : null;
   const trendDirection =
     trendDelta === null
       ? null
