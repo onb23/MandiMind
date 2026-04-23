@@ -197,20 +197,18 @@ export default function Comparison() {
     wait: t.comparisonInsightWait,
     neutral: t.comparisonInsightNeutral,
   };
-  const hasTodayRows = splitRanked.decision.some((item) => item.modeFreshnessDays === 0);
-  const hasRecentRows = splitRanked.decision.some((item) =>
-    Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays > 0 && item.modeFreshnessDays <= 3
-  );
+  const hasToday = (compareData?.todayCount || 0) > 0
+    || (compareData?.mandis || []).some((row) => row?.freshnessDays === 0);
+  const hasBestAvailable = (backendRanked.length || 0) > 0 || (backendFallbackOld.length || 0) > 0;
+  const hasRankedForBest = rankedMandis.length > 0;
   const hasOldRows = normalizedFallback.length > 0;
   const isTodayMode = compareMode === "today";
   const isBestAvailableMode = compareMode === "latest";
-  const shouldRenderRanked = rankedMandis.length > 0;
+  const shouldRenderRanked = isTodayMode ? hasToday && rankedMandis.length > 0 : hasRankedForBest;
   const shouldRenderFallback = isBestAvailableMode && hasOldRows;
-  const showRecentFallbackMessage = isBestAvailableMode && !hasTodayRows && hasRecentRows;
-  const showOldFallbackMessage = isBestAvailableMode && !shouldRenderRanked && shouldRenderFallback;
-  const showNoDataState = isTodayMode
-    ? !shouldRenderRanked
-    : !shouldRenderRanked && !shouldRenderFallback;
+  const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailable && hasRankedForBest;
+  const showOldFallbackMessage = isBestAvailableMode && hasBestAvailable && !hasRankedForBest && shouldRenderFallback;
+  const showNoDataState = isTodayMode ? !hasToday : !hasBestAvailable;
 
   const spokenLang = (selectedVoiceLang || language || "mr").toLowerCase().startsWith("mr")
     ? "mr"
@@ -434,10 +432,10 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && showRecentFallbackMessage && (
+        {!loading && !error && showBestAvailableDataMessage && (
           <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-center mb-3">
             <p className="text-blue-900 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              Showing latest available data (last 1–3 days)
+              Showing latest available data
             </p>
           </div>
         )}
