@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import SpeakerButton from "../components/SpeakerButton";
-import { useSpeechAssistant } from "../utils/speechSynthesis";
 import { getCropById } from "../data/mockPrices";
 import { getDecision, getDecisionStrengthModel } from "../utils/decisionEngine";
 import { fetchPrices, fetchCompare } from "../utils/api";
