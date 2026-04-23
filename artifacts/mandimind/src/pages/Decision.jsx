@@ -1,16 +1,16 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useLanguage } from "../context/LanguageContext";
+import DecisionCard from "../components/DecisionCard";
 import SpeakerButton from "../components/SpeakerButton";
+import TrendChart from "../components/TrendChart";
+import { useLanguage } from "../context/LanguageContext";
 import { getCropById } from "../data/mockPrices";
+import { useSpeechAssistant } from "../hooks/useSpeechAssistant";
+import { trackEvent } from "../lib/analytics";
+import { fetchCompare, fetchPrices } from "../utils/api";
 import { getDecision, getDecisionStrengthModel } from "../utils/decisionEngine";
-import { fetchPrices, fetchCompare } from "../utils/api";
 import { getMandiAvailabilityFromRecords } from "../utils/mandiAvailability";
 import { shareResult } from "../utils/shareResult";
-import { trackEvent } from "../lib/analytics";
-import { useSpeechAssistant } from "../hooks/useSpeechAssistant";
-import DecisionCard from "../components/DecisionCard";
-import TrendChart from "../components/TrendChart";
 
 export default function Decision() {
   const { t, language } = useLanguage();
