@@ -104,22 +104,34 @@ export default function Comparison() {
   const selectedCropName = cropList.find((crop) => crop.id === selectedCrop)?.name || selectedCrop;
   const mandis = compareData?.mandis || [];
   const backendRanked = Array.isArray(compareData?.rankedMandis) ? compareData.rankedMandis : [];
-  const fallbackOldMandis = Array.isArray(compareData?.fallbackOldMandis) ? compareData.fallbackOldMandis : [];
-  const rankingBasis = compareData?.rankingBasis || "best_available";
-  const bestConfidence = compareData?.bestConfidence || "low";
+  const backendFallbackOld = Array.isArray(compareData?.fallbackOldMandis)
+    ? compareData.fallbackOldMandis
+    : Array.isArray(compareData?.fallbackOldRows)
+      ? compareData.fallbackOldRows
+      : [];
+  const rankingBasis = compareData?.rankingBasis || "fresh_recent_only";
+  const bestConfidence = typeof compareData?.bestConfidence === "string" ? compareData.bestConfidence.toLowerCase() : "low";
+  const freshnessCounts = compareData?.freshnessCounts || null;
   const latestAvailableDate = compareData?.latestAvailableDate || compareData?.lastUpdated || null;
   const bestMandiId = compareData?.bestMandi || null;
   const bestMandiMessage = compareData?.bestMandiMessage || "";
   const coverageMessage = compareData?.coverageMessage || "";
   const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
+  const normalizeMandiItem = (item) => ({
+    ...item,
+    mandi: item?.mandi || "Unknown",
+    modePrice: Number.isFinite(item?.todayPrice)
+      ? item.todayPrice
+      : Number.isFinite(item?.price)
+        ? item.price
+        : null,
+    avgPrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
+    modeFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
+    freshnessBucket: typeof item?.freshnessBucket === "string" ? item.freshnessBucket : null,
+  });
   const normalizedRanked = backendRanked
-    .map((item) => ({
-      ...item,
-      mandi: item?.mandi || "Unknown",
-      modePrice: Number.isFinite(item?.todayPrice) ? item.todayPrice : Number.isFinite(item?.price) ? item.price : null,
-      avgPrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
-      modeFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
-    }))
+    .map(normalizeMandiItem)
+    .filter((item) => item.mandi !== "No mandi data")
     .sort((a, b) => {
       const byPrice = scorePrice(b.modePrice) - scorePrice(a.modePrice);
       if (byPrice !== 0) return byPrice;
@@ -127,17 +139,28 @@ export default function Comparison() {
       if (byFreshness !== 0) return byFreshness;
       return a.mandi.localeCompare(b.mandi);
     });
+  const splitRanked = normalizedRanked.reduce(
+    (acc, item) => {
+      const isOldFromBucket = item.freshnessBucket === "old" || item.freshnessBucket === "expired";
+      const isOldFromDays = Number.isFinite(item.modeFreshnessDays) && item.modeFreshnessDays > 3;
+      if (isOldFromBucket || isOldFromDays) {
+        acc.old.push(item);
+      } else {
+        acc.decision.push(item);
+      }
+      return acc;
+    },
+    { decision: [], old: [] }
+  );
   const rankedMandis = compareMode === "today"
-    ? normalizedRanked.filter((item) => item.modeFreshnessDays === 0)
-    : normalizedRanked;
-  const normalizedFallback = fallbackOldMandis
+    ? splitRanked.decision.filter((item) => item.modeFreshnessDays === 0)
+    : splitRanked.decision;
+  const normalizedFallback = [...backendFallbackOld, ...splitRanked.old]
     .map((item) => ({
-      ...item,
-      mandi: item?.mandi || "Unknown",
-      modePrice: Number.isFinite(item?.todayPrice) ? item.todayPrice : Number.isFinite(item?.price) ? item.price : null,
-      avgPrice: Number.isFinite(item?.avgPrice) ? item.avgPrice : null,
-      modeFreshnessDays: Number.isFinite(item?.freshnessDays) ? item.freshnessDays : null,
+      ...normalizeMandiItem(item),
+      freshnessBucket: item?.freshnessBucket || "old",
     }))
+    .filter((item, idx, arr) => arr.findIndex((row) => row.mandi === item.mandi) === idx)
     .sort((a, b) => {
       const byPrice = scorePrice(b.modePrice) - scorePrice(a.modePrice);
       if (byPrice !== 0) return byPrice;
@@ -145,7 +168,12 @@ export default function Comparison() {
     });
   const lastUpdated = latestAvailableDate;
   const displayedMandis = rankedMandis;
-  const bestMandi = rankedMandis.find((item) => item.mandi === bestMandiId) || null;
+  const bestMandiName = typeof bestMandiId === "string"
+    ? bestMandiId
+    : typeof bestMandiId?.mandi === "string"
+      ? bestMandiId.mandi
+      : null;
+  const bestMandi = rankedMandis.find((item) => item.mandi === bestMandiName) || null;
   const showBestMandiBadge = bestConfidence === "high";
   const bestLabel = t.bestMandi;
   const comparableMandis = displayedMandis.filter((item) => Number.isFinite(item.todayPrice) && Number.isFinite(item.avgPrice));
@@ -299,6 +327,11 @@ export default function Comparison() {
             </p>
             <p className="text-xs text-slate-600" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               <span className="font-semibold text-slate-700">Coverage</span>: {coverageMessage || "—"}
+              {freshnessCounts && (
+                <span className="ml-2 text-[11px] text-slate-500">
+                  ({`F ${freshnessCounts.freshCount ?? 0} · R ${freshnessCounts.recentCount ?? 0} · O ${freshnessCounts.oldCount ?? 0}`})
+                </span>
+              )}
             </p>
             <p className="text-xs text-slate-600" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               <span className="font-semibold text-slate-700">Decision confidence</span>: {bestConfidence === "high" ? "High" : "Low"}
@@ -377,7 +410,7 @@ export default function Comparison() {
               />
             </div>
             <p className="text-xs text-slate-600 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {rankingBasis === "today_only" ? "Today only ranking" : "Best available ranking"}
+              {rankingBasis === "today_only" ? "Today only ranking" : "Fresh + recent ranking"}
             </p>
           </div>
         )}
@@ -481,7 +514,8 @@ export default function Comparison() {
                       avgPrice={item.avgPrice}
                       stale={false}
                       freshnessDays={item.modeFreshnessDays}
-                      isBest={showBestMandiBadge && item.mandi === bestMandiId}
+                      freshnessBucket={item.freshnessBucket}
+                      isBest={showBestMandiBadge && item.mandi === bestMandiName}
                       rank={idx + 1}
                       bestLabel={bestLabel}
                       onSpeak={idx === 0 ? () => speakText(buildCardSpeech(item)) : undefined}
@@ -511,6 +545,7 @@ export default function Comparison() {
                       stale={true}
                       freshnessDays={item.modeFreshnessDays}
                       forceBadge="FALLBACK_OLD"
+                      freshnessBucket={item.freshnessBucket}
                       isBest={false}
                       rank={idx + 1}
                       bestLabel=""

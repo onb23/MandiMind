@@ -1,8 +1,30 @@
 import { useLanguage } from "../context/LanguageContext";
 import SpeakerButton from "./SpeakerButton";
 
-const getFreshnessBadge = (freshnessDays, forceBadge) => {
+const getFreshnessBadge = (freshnessDays, forceBadge, freshnessBucket = null) => {
   if (forceBadge === "FALLBACK_OLD") {
+    return {
+      label: "4–7 days old",
+      className: "bg-slate-100 text-slate-700 border border-slate-200",
+    };
+  }
+
+  if (freshnessBucket === "fresh") {
+    return {
+      label: "LIVE",
+      className: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+    };
+  }
+
+  if (freshnessBucket === "recent") {
+    const recentLabel = freshnessDays === 1 ? "1 day old" : "Recent";
+    return {
+      label: recentLabel,
+      className: "bg-amber-50 text-amber-700 border border-amber-100",
+    };
+  }
+
+  if (freshnessBucket === "old" || freshnessBucket === "expired") {
     return {
       label: "4–7 days old",
       className: "bg-slate-100 text-slate-700 border border-slate-200",
@@ -61,6 +83,7 @@ export default function MandiCard({
   rank,
   bestLabel,
   forceBadge,
+  freshnessBucket,
   onSpeak,
   onStopSpeak,
   isSpeaking = false,
@@ -89,7 +112,7 @@ export default function MandiCard({
           ? t.comparisonTrendFlatVsAvg
           : null;
 
-  const freshnessBadge = getFreshnessBadge(freshnessDays, forceBadge);
+  const freshnessBadge = getFreshnessBadge(freshnessDays, forceBadge, freshnessBucket);
   const relativeUpdated = getUpdatedLabel(freshnessDays, t);
 
   return (
