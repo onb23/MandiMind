@@ -134,13 +134,16 @@ export default function Comparison() {
   const bestAvailableMandis = normalizedMandis.filter(
     (item) => item.todayPrice != null || item.avgPrice != null
   );
-  const renderRows = isBestAvailableMode
-    ? mandis.filter((m) => m?.todayPrice != null || m?.avgPrice != null)
-    : mandis.filter((m) => m?.todayPrice != null);
   const displayedMandis = isTodayMode ? todayMandis : bestAvailableMandis;
   const normalizedFallback = [];
   const hasBestAvailable = displayedMandis.length > 0 || normalizedFallback.length > 0;
-  const comparableMandis = renderRows.filter((item) => Number.isFinite(item?.todayPrice) && Number.isFinite(item?.avgPrice));
+  const rowsToRender =
+    compareMode === "today"
+      ? displayedMandis
+      : displayedMandis.length > 0
+        ? displayedMandis
+        : normalizedFallback;
+  const comparableMandis = rowsToRender.filter((item) => Number.isFinite(item?.todayPrice) && Number.isFinite(item?.avgPrice));
   const avgTodayPrice = comparableMandis.length
     ? Math.round(comparableMandis.reduce((sum, item) => sum + item.todayPrice, 0) / comparableMandis.length)
     : null;
@@ -151,7 +154,6 @@ export default function Comparison() {
   const comparisonGapPct = hasInsightData ? ((avgTodayPrice - avgRecentPrice) / avgRecentPrice) * 100 : null;
   const similarityThresholdPct = 1;
   const insightType = !hasInsightData ? null : comparisonGapPct > similarityThresholdPct ? "sell" : comparisonGapPct < -similarityThresholdPct ? "wait" : "neutral";
-  const shouldRenderRanked = renderRows.length > 0;
   const showBestAvailableDataMessage = isBestAvailableMode && hasBestAvailable;
   const showNoDataState = displayedMandis.length === 0 && normalizedFallback.length === 0;
   const getModeMessage = () => {
@@ -394,7 +396,7 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && shouldRenderRanked && (
+        {!loading && !error && rowsToRender.length > 0 && (
           <>
             {insightType && (
               <div className={`rounded-2xl border p-3 mb-3 ${insightStyles[insightType]}`}>
@@ -422,7 +424,7 @@ export default function Comparison() {
               </div>
             )}
 
-            {bestMandi && showBestMandiBadge && shouldRenderRanked && (
+            {bestMandi && showBestMandiBadge && (
               <div className="bg-gradient-to-r from-[#083f26] to-[#0b5734] rounded-2xl p-3.5 mb-4 flex items-center justify-between gap-3 shadow-[0_8px_20px_rgba(6,61,37,0.25)]">
                 <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                   {bestLabel}:
@@ -441,44 +443,40 @@ export default function Comparison() {
               </div>
             )}
 
-            {shouldRenderRanked && (
-              <div className="mb-2">
-                <h2 className="text-base font-bold mb-2 text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  Best available for decision
-                </h2>
-                <div className="space-y-4">
-                  {renderRows.map((item, idx) => (
-                    <div
-                      key={`ranked-${item.mandi}`}
-                      className="animate-fade-in-up"
-                      style={{ animationDelay: `${idx * 45}ms` }}
-                    >
-                      <MandiCard
-                      mandi={item.mandi}
-                      price={item.todayPrice ?? item.avgPrice}
-                      todayPrice={item.todayPrice}
-                      avgPrice={item.avgPrice}
-                      stale={false}
-                      isBest={false}
-                      rank={idx + 1}
-                      bestLabel={bestLabel}
-                      onSpeak={idx === 0 ? () => speakText(buildCardSpeech(item)) : undefined}
-                      onStopSpeak={stopSpeaking}
-                      isSpeaking={speaking && idx === 0}
-                      isSpeechSupported={isSupported}
-                      speakAriaLabel={idx === 0 ? "Hear top mandi price" : undefined}
-                    />
-                    </div>
-                  ))}
-                </div>
+            <div className="mb-2">
+              <h2 className="text-base font-bold mb-2 text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
+                Best available for decision
+              </h2>
+              <div className="space-y-4">
+                {rowsToRender.map((item, idx) => (
+                  <div
+                    key={`ranked-${item.mandi}`}
+                    className="animate-fade-in-up"
+                    style={{ animationDelay: `${idx * 45}ms` }}
+                  >
+                    <MandiCard
+                    mandi={item.mandi}
+                    price={item.todayPrice ?? item.avgPrice}
+                    todayPrice={item.todayPrice}
+                    avgPrice={item.avgPrice}
+                    stale={false}
+                    isBest={false}
+                    rank={idx + 1}
+                    bestLabel={bestLabel}
+                    onSpeak={idx === 0 ? () => speakText(buildCardSpeech(item)) : undefined}
+                    onStopSpeak={stopSpeaking}
+                    isSpeaking={speaking && idx === 0}
+                    isSpeechSupported={isSupported}
+                    speakAriaLabel={idx === 0 ? "Hear top mandi price" : undefined}
+                  />
+                  </div>
+                ))}
               </div>
-            )}
+            </div>
 
-            {shouldRenderRanked && (
-              <p className="text-center text-xs text-gray-500 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {t.mandiCountSummary.replace("{count}", renderRows.length)}
-              </p>
-            )}
+            <p className="text-center text-xs text-gray-500 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
+              {t.mandiCountSummary.replace("{count}", rowsToRender.length)}
+            </p>
             <p className="text-center text-[11px] text-gray-400 mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               MandiMind · Smarter mandi decisions, grounded in data
             </p>
