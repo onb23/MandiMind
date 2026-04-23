@@ -390,17 +390,25 @@ export function getMandisForPriceMode(mandis = [], mode = PRICE_MODE.TODAY, opti
       const modeFreshnessDays = modeRow ? getFreshnessDays(modeRow.parsedDate) : null;
       const modeFallbackToLatest = !isTodayMode && Boolean(modeRow) && modeRow !== item?.recentRow;
 
+      const todayModePrice = Number.isFinite(item?.todayPrice)
+        ? item.todayPrice
+        : modeRow?.price ?? null;
+      const recentModePrice = Number.isFinite(item?.avgPrice)
+        ? item.avgPrice
+        : modeRow?.price ?? null;
+      const modePrice = isTodayMode ? todayModePrice : recentModePrice;
+
       return {
         ...item,
         mode,
-        modePrice: modeRow?.price ?? null,
+        modePrice,
         modeDate: modeRow?.date ?? null,
         modeFreshnessDays,
-        modeHasData: Boolean(modeRow),
+        modeHasData: Number.isFinite(modePrice),
         modeFallbackToLatest,
       };
     })
-    .filter((item) => (isTodayMode ? item.modeHasData : item?.isUsable && item.modeHasData))
+    .filter((item) => item.modeHasData)
     .sort((a, b) => a.mandi.localeCompare(b.mandi));
 }
 
