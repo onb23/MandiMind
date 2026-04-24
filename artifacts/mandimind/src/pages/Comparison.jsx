@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
+import { fetchAvailableCrops } from "../utils/mandiAvailability";
+import { fetchCompare } from "../utils/api";
 import MandiCard from "../components/MandiCard";
 
 export default function Comparison() {
@@ -43,7 +44,7 @@ export default function Comparison() {
     async function load() {
       setLoading(true);
       setError(false);
-      const result = await fetchAvailableMandis(selectedCrop, "Maharashtra");
+      const result = await fetchCompare(selectedCrop, "Maharashtra", 7);
       if (!cancelled) {
         if (result.source === "error") {
           setError(true);
