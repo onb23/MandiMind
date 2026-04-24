@@ -65,7 +65,26 @@ const result = await res.json();
   }, [selectedCrop]);
 
   const rawMandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
-  const allAvailableRows = rawMandis
+
+const allAvailableRows = rawMandis
+  .map((m) => {
+    const selectedPrice =
+      m?.todayPrice ||
+      m?.avgPrice ||
+      m?.price ||
+      m?.modal_price ||
+      0;
+
+    const numericPrice = Number(String(selectedPrice).replace(/,/g, ""));
+
+    return {
+      ...m,
+      displayPrice: numericPrice,
+      selectedPrice: numericPrice,
+    };
+  })
+  .filter((m) => m?.mandi && Number.isFinite(m.displayPrice) && m.displayPrice > 0)
+  .sort((a, b) => b.displayPrice - a.displayPrice);
     .map((m) => {
       const selectedPrice = m?.todayPrice ?? m?.avgPrice ?? m?.price ?? m?.modal_price;
       const numericPrice = Number(String(selectedPrice ?? "").replace(/,/g, ""));
