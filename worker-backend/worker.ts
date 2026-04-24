@@ -817,6 +817,28 @@ function validateEventPayload(value: unknown): AnalyticsEventPayload | null {
   };
 }
 
+function parseNumericPrice(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const normalized = Number(String(value).replace(/,/g, ""));
+  if (!Number.isFinite(normalized) || normalized <= 0) return null;
+  return normalized;
+}
+
+function extractModalPrice(raw: Record<string, unknown>): number | null {
+  const candidates = [
+    raw.modal_price,
+    raw.modalPrice,
+    raw.modal_price_rs,
+    raw["modal_price/quintal"],
+    raw["Modal Price"],
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseNumericPrice(candidate);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
 async function incrementCounter(
   kv: KVNamespace,
   dateKey: string,
@@ -968,54 +990,81 @@ function buildCompareRecentWindowResponse(
     if (includeTodayOnly) return freshnessDays === 0;
     return freshnessDays <= Math.max(1, windowDays);
   });
-  const byMandi = new Map<string, PriceRecord[]>();
-  for (const row of rankingRows) {
-    if (!row.market) continue;
-    if (!byMandi.has(row.market)) byMandi.set(row.market, []);
-    byMandi.get(row.market)!.push(row);
-  }
-
-  const mandis = Array.from(byMandi.entries())
-    .map(([mandi, mandiRows]) => {
-      const sorted = [...mandiRows].sort(
-        (a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date),
-      );
-      const latest = sorted[0];
-      const entries: CompareMandiDateEntry[] = sorted.map((row) => ({
-        date: row.date,
+  const mandis = includeTodayOnly
+    ? rankingRows
+      .map((row) => ({
+        mandi: row.market,
+        todayPrice: row.modal_price,
+        weightedScore: Number(
+          getDecisionScore(
+            row.modal_price,
+            getFreshnessDays(row.date, todayTs),
+            rankingIntent,
+          ).toFixed(2),
+        ),
+        avgPrice: row.modal_price,
+        lastUpdated: row.date,
+        stale: false,
         freshnessDays: getFreshnessDays(row.date, todayTs),
-        price: row.modal_price,
-        minPrice: row.min_price,
-        maxPrice: row.max_price,
-        variety: row.variety,
-      }));
-      const avgPrice = entries.length
-        ? Math.round(
-            entries.reduce((sum, e) => sum + e.price, 0) / entries.length,
-          )
-        : 0;
-      return {
-        mandi,
-        todayPrice: latest?.modal_price ?? 0,
-        weightedScore: latest
-          ? Number(
-              getDecisionScore(
-                latest.modal_price ?? 0,
-                getFreshnessDays(latest.date, todayTs),
-                rankingIntent,
-              ).toFixed(2),
+        freshnessBucket: getFreshnessBucket(row.date, todayTs),
+        entries: [{
+          date: row.date,
+          freshnessDays: getFreshnessDays(row.date, todayTs),
+          price: row.modal_price,
+          minPrice: row.min_price,
+          maxPrice: row.max_price,
+          variety: row.variety,
+        } satisfies CompareMandiDateEntry],
+      }))
+      .filter((row) => Boolean(row.mandi) && Number.isFinite(row.todayPrice) && row.todayPrice > 0)
+    : (() => {
+      const byMandi = new Map<string, PriceRecord[]>();
+      for (const row of rankingRows) {
+        if (!row.market) continue;
+        if (!byMandi.has(row.market)) byMandi.set(row.market, []);
+        byMandi.get(row.market)!.push(row);
+      }
+      return Array.from(byMandi.entries()).map(([mandi, mandiRows]) => {
+        const sorted = [...mandiRows].sort(
+          (a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date),
+        );
+        const latest = sorted[0];
+        const entries: CompareMandiDateEntry[] = sorted.map((row) => ({
+          date: row.date,
+          freshnessDays: getFreshnessDays(row.date, todayTs),
+          price: row.modal_price,
+          minPrice: row.min_price,
+          maxPrice: row.max_price,
+          variety: row.variety,
+        }));
+        const avgPrice = entries.length
+          ? Math.round(
+              entries.reduce((sum, e) => sum + e.price, 0) / entries.length,
             )
-          : 0,
-        avgPrice,
-        lastUpdated: latest?.date ?? null,
-        stale: latest ? isDataStale(latest.date) : true,
-        freshnessDays: latest ? getFreshnessDays(latest.date, todayTs) : null,
-        freshnessBucket: latest
-          ? getFreshnessBucket(latest.date, todayTs)
-          : null,
-        entries,
-      };
-    })
+          : 0;
+        return {
+          mandi,
+          todayPrice: latest?.modal_price ?? 0,
+          weightedScore: latest
+            ? Number(
+                getDecisionScore(
+                  latest.modal_price ?? 0,
+                  getFreshnessDays(latest.date, todayTs),
+                  rankingIntent,
+                ).toFixed(2),
+              )
+            : 0,
+          avgPrice,
+          lastUpdated: latest?.date ?? null,
+          stale: latest ? isDataStale(latest.date) : true,
+          freshnessDays: latest ? getFreshnessDays(latest.date, todayTs) : null,
+          freshnessBucket: latest
+            ? getFreshnessBucket(latest.date, todayTs)
+            : null,
+          entries,
+        };
+      });
+    })()
     .sort(
       (a, b) => {
         const freshnessPriority = (value: number | null) =>
@@ -1055,7 +1104,12 @@ function buildCompareRecentWindowResponse(
     freshnessCounts: dataset.split.counts,
     coverageMessage: `Fresh: ${dataset.split.counts.freshCount}, Recent: ${dataset.split.counts.recentCount}`,
     ...dataset.split.booleans,
-    status: mandis.length === 0 ? "no_usable_data" : dataset.status,
+    status:
+      includeTodayOnly && rankingRows.length > 0 && mandis.length > 0
+        ? "today_has_data"
+        : mandis.length === 0
+          ? "no_usable_data"
+          : dataset.status,
     rankedMandis: mandis,
     bestMandi:
       dataset.split.counts.freshCount >= 3 ||
@@ -1115,22 +1169,26 @@ async function fetchDataGov(
   const body = (await res.json()) as { records?: any[] };
 
   return (body.records || [])
-    .filter(
-      (r: any) =>
-        r.modal_price && Number(r.modal_price) >= 50 && r.arrival_date,
-    )
-    .map((r: any) => ({
-      date: r.arrival_date,
-      market: r.market,
-      district: r.district ?? "",
-      state: r.state ?? "",
-      commodity: r.commodity,
-      variety: r.variety ?? undefined,
-      price: Number(r.modal_price),
-      min_price: Number(r.min_price),
-      max_price: Number(r.max_price),
-      modal_price: Number(r.modal_price),
-    }))
+    .map((r: any) => {
+      const market = String(r.market ?? r.mandi ?? "").trim();
+      const modalPrice = extractModalPrice(r);
+      if (!market || !r.arrival_date || modalPrice === null) return null;
+      const minPrice = parseNumericPrice(r.min_price) ?? modalPrice;
+      const maxPrice = parseNumericPrice(r.max_price) ?? modalPrice;
+      return {
+        date: r.arrival_date,
+        market,
+        district: r.district ?? "",
+        state: r.state ?? "",
+        commodity: r.commodity,
+        variety: r.variety ?? undefined,
+        price: modalPrice,
+        min_price: minPrice,
+        max_price: maxPrice,
+        modal_price: modalPrice,
+      } satisfies PriceRecord;
+    })
+    .filter((r): r is PriceRecord => r !== null)
     .sort(
       (a: PriceRecord, b: PriceRecord) =>
         parseArrivalDate(a.date) - parseArrivalDate(b.date),
@@ -1489,7 +1547,9 @@ async function handleCompare(
   const days = Number(params.get("days") ?? "7");
   const requestedMode = params.get("mode");
   const mode: "todayOnly" | "bestAvailable" =
-    requestedMode === "todayOnly" || days <= 1 ? "todayOnly" : "bestAvailable";
+    requestedMode === "todayOnly" || requestedMode === "today" || days <= 1
+      ? "todayOnly"
+      : "bestAvailable";
   const rankingIntent: RankingIntent =
     (params.get("intent") ?? "SELL").toUpperCase() === "BUY" ? "BUY" : "SELL";
 
