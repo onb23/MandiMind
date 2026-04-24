@@ -16,7 +16,6 @@ export default function Comparison() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [compareData, setCompareData] = useState(null);
-  const [compareMode, setCompareMode] = useState("today");
 
   useEffect(() => {
     let cancelled = false;
@@ -44,7 +43,7 @@ export default function Comparison() {
     async function load() {
       setLoading(true);
       setError(false);
-const result = await fetchCompare(selectedCrop, "Maharashtra");
+      const result = await fetchCompare(selectedCrop, "Maharashtra", 5);
       if (!cancelled) {
         if (result.source === "error") {
           setError(true);
@@ -65,18 +64,18 @@ const result = await fetchCompare(selectedCrop, "Maharashtra");
   const allAvailableRows = rawMandis
     .map((m) => {
       const displayPrice =
-  m?.todayPrice ||
-  m?.avgPrice ||
-  m?.price ||
-  m?.modal_price ||
-  0;
-      const numericPrice = Number(String(displayPrice).replace(/,/g, ""));
+        m?.todayPrice ?? m?.avgPrice ?? m?.price ?? m?.modal_price;
+      const numericPrice = Number(String(displayPrice ?? "").replace(/,/g, ""));
       return {
         ...m,
         displayPrice: numericPrice,
       };
     })
-    .filter((m) => m?.mandi && m.displayPrice)
+    .filter((m) => {
+      const hasMandi = typeof m?.mandi === "string" && m.mandi.trim().length > 0;
+      const hasValidPrice = Number.isFinite(m.displayPrice) && m.displayPrice > 0;
+      return hasMandi && hasValidPrice;
+    })
     .sort((a, b) => {
       const dateA = new Date(a?.lastUpdated).getTime();
       const dateB = new Date(b?.lastUpdated).getTime();
@@ -102,9 +101,6 @@ const result = await fetchCompare(selectedCrop, "Maharashtra");
         >
           {t.comparison}
         </h1>
-<p style={{ color: "red", fontWeight: "900", fontSize: "18px" }}>
-  TEST BUILD 999
-</p>
         {lastUpdated && !loading && (
           <p className="text-xs text-gray-400 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
             {t.updatedThrough}: {lastUpdated}
@@ -125,29 +121,6 @@ const result = await fetchCompare(selectedCrop, "Maharashtra");
             </option>
           ))}
         </select>
-
-        <div className="mt-3 bg-white rounded-xl p-1 border border-gray-200 grid grid-cols-2 gap-1">
-          <button
-            type="button"
-            onClick={() => setCompareMode("today")}
-            className={`text-sm py-2 px-2 rounded-lg font-semibold transition-colors ${
-              compareMode === "today" ? "bg-[#004c22] text-white" : "text-[#004c22] bg-transparent"
-            }`}
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
-            {t.priceTypeToday}
-          </button>
-          <button
-            type="button"
-            onClick={() => setCompareMode("latest")}
-            className={`text-sm py-2 px-2 rounded-lg font-semibold transition-colors ${
-              compareMode === "latest" ? "bg-[#775d00] text-white" : "text-[#775d00] bg-transparent"
-            }`}
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
-            {t.priceTypeLatest}
-          </button>
-        </div>
       </div>
 
       <div className="px-4">
@@ -204,7 +177,7 @@ const result = await fetchCompare(selectedCrop, "Maharashtra");
                     todayPrice={Number(item.displayPrice)}
                     avgPrice={Number(item.displayPrice)}
                     lastUpdated={item.lastUpdated}
-                    stale={false}
+                    stale={item.stale ?? false}
                     freshnessDays={item.freshnessDays}
                     freshnessText={item.lastUpdated || ""}
                     isBest={idx === 0}
