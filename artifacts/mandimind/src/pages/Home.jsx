@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { fetchAvailableCrops } from "../utils/mandiAvailability";
-import { fetchCompare } from "../utils/api";
 import logo from "../assets/logo.svg";
 
 function FieldSkeleton() {
@@ -18,7 +17,7 @@ export default function Home() {
   const { t } = useLanguage();
   const navigate = useNavigate();
 
-  const [selectedCrop,  setSelectedCrop]  = useState("");
+  const [selectedCrop, setSelectedCrop] = useState("");
   const [selectedMandi, setSelectedMandi] = useState("");
 
   const [cropList, setCropList] = useState([]);
@@ -29,9 +28,7 @@ export default function Home() {
   const [mandiLoading, setMandiLoading] = useState(false);
   const [mandiError, setMandiError] = useState("");
 
-  const visibleMandis = useMemo(() => {
-    return mandiRows;
-  }, [mandiRows]);
+  const visibleMandis = useMemo(() => mandiRows, [mandiRows]);
   const hasVisibleMandis = visibleMandis.length > 0;
   const hasLowMandiAvailability = selectedCrop && !mandiLoading && !mandiError && mandiRows.length > 0 && mandiRows.length <= 2;
 
@@ -46,20 +43,19 @@ export default function Home() {
 
   const jumpToCropSelector = () => {
     const cropField = document.getElementById("crop-selector");
-    if (cropField) {
-      cropField.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
+    if (cropField) cropField.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   useEffect(() => {
     let cancelled = false;
+
     async function loadCrops() {
       setCropLoading(true);
       setCropError("");
       try {
         const crops = await fetchAvailableCrops("Maharashtra");
         if (!cancelled) {
-          setCropList(crops);
+          setCropList(Array.isArray(crops) ? crops : []);
           if (selectedCrop && !crops.some((crop) => crop.id === selectedCrop)) {
             setSelectedCrop("");
             setSelectedMandi("");
@@ -96,28 +92,44 @@ export default function Home() {
       setMandiLoading(true);
       setMandiError("");
 
-      const result = await fetchCompare(selectedCrop, "Maharashtra", 5);
+      try {
+        const res = await fetch(
+          `https://mandimind.omkarborade-11.workers.dev/api/compare?crop=${encodeURIComponent(selectedCrop)}&state=Maharashtra&days=5&t=${Date.now()}`
+        );
+        const result = await res.json();
 
-      if (cancelled) return;
+        if (cancelled) return;
 
-      if (result?.source === "error") {
-        setMandiRows([]);
-        setMandiError(t.liveMandiTemporarilyUnavailable);
-      } else {
-        const validMandis = (Array.isArray(result?.mandis) ? result.mandis : []).filter((item) => {
-          const mandiName = typeof item?.mandi === "string" ? item.mandi.trim() : "";
-          const firstAvailablePrice = item?.todayPrice ?? item?.avgPrice ?? item?.price ?? item?.modal_price;
-          const hasAnyPrice = firstAvailablePrice !== null && firstAvailablePrice !== undefined && String(firstAvailablePrice).trim() !== "";
-          return Boolean(mandiName) && hasAnyPrice;
-        });
+        if (!res.ok || result?.source === "error" || result?.error) {
+          setMandiRows([]);
+          setMandiError(t.liveMandiTemporarilyUnavailable);
+          return;
+        }
+
+        const validMandis = (Array.isArray(result?.mandis) ? result.mandis : [])
+          .map((item) => {
+            const price = item?.todayPrice ?? item?.avgPrice ?? item?.price ?? item?.modal_price;
+            const numericPrice = Number(String(price ?? "").replace(/,/g, ""));
+            return { ...item, displayPrice: numericPrice };
+          })
+          .filter((item) => {
+            const mandiName = typeof item?.mandi === "string" ? item.mandi.trim() : "";
+            return Boolean(mandiName) && Number.isFinite(item.displayPrice) && item.displayPrice > 0;
+          });
 
         setMandiRows(validMandis);
         if (selectedMandi && !validMandis.some((item) => item.mandi === selectedMandi)) {
           setSelectedMandi("");
         }
+      } catch (error) {
+        console.error("[MandiMind] loadMandis failed:", error);
+        if (!cancelled) {
+          setMandiRows([]);
+          setMandiError(t.liveMandiTemporarilyUnavailable);
+        }
+      } finally {
+        if (!cancelled) setMandiLoading(false);
       }
-
-      setMandiLoading(false);
     }
 
     loadMandis();
@@ -131,10 +143,7 @@ export default function Home() {
     <div className="min-h-screen bg-[#fff9eb] pb-24">
       <div className="px-4 pt-8 pb-6 text-center">
         <img src={logo} alt="MandiMind" className="w-20 h-20 mx-auto mb-3" />
-        <h1
-          className="text-3xl font-extrabold text-[#004c22] mb-1"
-          style={{ fontFamily: "Manrope, sans-serif" }}
-        >
+        <h1 className="text-3xl font-extrabold text-[#004c22] mb-1" style={{ fontFamily: "Manrope, sans-serif" }}>
           {t.appName}
         </h1>
         <p className="text-sm text-[#1e1c10] opacity-55" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
@@ -151,10 +160,7 @@ export default function Home() {
       <div className="px-4 space-y-3">
         <section className="bg-white border border-gray-200 rounded-xl p-4">
           <div>
-            <h2
-              className="text-base font-extrabold text-[#004c22]"
-              style={{ fontFamily: "Manrope, sans-serif" }}
-            >
+            <h2 className="text-base font-extrabold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
               {t.mandiInsightsTitle}
             </h2>
             <p className="text-xs text-gray-500 mt-0.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
@@ -173,10 +179,7 @@ export default function Home() {
         </section>
 
         <div id="crop-selector">
-          <label
-            className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-1.5"
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
+          <label className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-1.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
             {t.selectCrop}
           </label>
           {cropLoading ? (
@@ -210,10 +213,7 @@ export default function Home() {
         </div>
 
         <div>
-          <label
-            className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-1.5"
-            style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}
-          >
+          <label className="block text-xs font-semibold text-[#1e1c10] uppercase tracking-wide mb-1.5" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
             {t.selectMandi}
           </label>
           <select
@@ -268,11 +268,7 @@ export default function Home() {
         </div>
 
         <button
-          onClick={() =>
-            navigate(
-              `/input?crop=${selectedCrop}&mandi=${encodeURIComponent(selectedMandi)}&state=Maharashtra`
-            )
-          }
+          onClick={() => navigate(`/input?crop=${selectedCrop}&mandi=${encodeURIComponent(selectedMandi)}&state=Maharashtra`)}
           disabled={!selectedCrop || !selectedMandi}
           className="w-full bg-[#feb234] text-[#1e1c10] font-bold text-lg py-4 rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
           style={{ fontFamily: "Manrope, sans-serif", minHeight: "56px" }}
@@ -282,9 +278,7 @@ export default function Home() {
       </div>
 
       <div className="px-4 mt-6 space-y-3">
-        <div
-          className="bg-white border border-gray-200 rounded-xl p-4 flex items-start gap-3"
-        >
+        <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-start gap-3">
           <span className="text-2xl">📊</span>
           <div>
             <p className="text-sm font-bold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
@@ -303,9 +297,7 @@ export default function Home() {
           </button>
         </div>
 
-        <div
-          className="bg-white border border-gray-200 rounded-xl p-4 flex items-start gap-3"
-        >
+        <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-start gap-3">
           <span className="text-2xl">📈</span>
           <div>
             <p className="text-sm font-bold text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
