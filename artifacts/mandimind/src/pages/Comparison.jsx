@@ -64,7 +64,12 @@ const result = await fetchCompare(selectedCrop, "Maharashtra");
   const rawMandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
   const allAvailableRows = rawMandis
     .map((m) => {
-      const displayPrice = m?.todayPrice ?? m?.avgPrice ?? m?.price ?? m?.modal_price;
+      const displayPrice =
+  m?.todayPrice ||
+  m?.avgPrice ||
+  m?.price ||
+  m?.modal_price ||
+  0;
       const numericPrice = Number(String(displayPrice).replace(/,/g, ""));
       return {
         ...m,
