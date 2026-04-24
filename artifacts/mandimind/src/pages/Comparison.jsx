@@ -56,7 +56,13 @@ export default function Comparison() {
     return () => { cancelled = true; };
   }, [selectedCrop]);
 
-  const mandis = compareData?.mandis || [];
+  const rawMandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
+  const launchRows = rawMandis.filter((m) => {
+    const price = m?.todayPrice ?? m?.avgPrice ?? m?.price ?? m?.modal_price;
+    return m?.mandi && Number.isFinite(Number(price));
+  });
+  console.log("LAUNCH COMPARE ROWS", launchRows);
+  const mandis = rawMandis;
   const modeMandis = getMandisForPriceMode(mandis, compareMode, { includeTodayInLatest: true });
   const todayMandiCount = mandis.filter((item) => item?.todayOption?.isUsable).length;
   const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
@@ -76,12 +82,13 @@ export default function Comparison() {
   };
   const displayedMandis = [...modeMandis].sort(sortFn);
   const bestMandi = displayedMandis.find((item) => Number.isFinite(item.modePrice) && item.modePrice > 0) || null;
+  const bestLaunchMandi = launchRows[0] || null;
   const bestLabel = bestMandi
     ? compareMode === "today"
       ? t.comparisonBestPriceToday
       : t.comparisonBestLatestPrice
     : "";
-  const lastUpdated = compareData?.lastUpdated || displayedMandis[0]?.lastUpdated || mandis[0]?.lastUpdated;
+  const lastUpdated = compareData?.lastUpdated || launchRows[0]?.lastUpdated || displayedMandis[0]?.lastUpdated || mandis[0]?.lastUpdated;
   const comparableMandis = displayedMandis.filter(
     (item) => Number.isFinite(item.todayPrice) && Number.isFinite(item.avgPrice)
   );
@@ -220,7 +227,7 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && mandis.length === 0 && (
+        {!loading && !error && launchRows.length === 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
             <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.noMandiDataLast3Days}
@@ -229,7 +236,7 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && mandis.length > 0 && (
+        {!loading && !error && launchRows.length > 0 && (
           <>
             {insightType && (
               <div className={`rounded-xl border p-3 mb-3 ${insightStyles[insightType]}`}>
@@ -247,18 +254,18 @@ export default function Comparison() {
               </div>
             )}
 
-            {bestMandi && displayedMandis.length > 0 && (
+            {bestLaunchMandi && launchRows.length > 0 && (
               <div className="bg-[#004c22] rounded-xl p-3 mb-4 flex items-center justify-between">
                 <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                   {bestLabel}:
                 </span>
                 <span className="text-[#feb234] font-bold text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  {bestMandi.mandi} — {bestMandi.modePrice > 0 ? `₹${bestMandi.modePrice.toLocaleString("en-IN")}` : "—"}
+                  {bestLaunchMandi.mandi} — ₹{Number(bestLaunchMandi.todayPrice ?? bestLaunchMandi.avgPrice ?? bestLaunchMandi.price ?? bestLaunchMandi.modal_price).toLocaleString("en-IN")}
                 </span>
               </div>
             )}
 
-            {displayedMandis.length > 0 && (
+            {launchRows.length > 0 && (
               <div className="mb-2">
                 <h2
                   className={`text-base font-bold mb-2 ${compareMode === "today" ? "text-[#004c22]" : "text-[#775d00]"}`}
@@ -267,33 +274,31 @@ export default function Comparison() {
                   {compareMode === "today" ? t.liveToday : t.latestAvailableLast3Days}
                 </h2>
                 <div className="space-y-3">
-                  {displayedMandis.map((item, idx) => (
-                    <MandiCard
-                      key={`${compareMode}-${item.mandi}`}
-                      mandi={item.mandi}
-                      todayPrice={item.modePrice}
-                      avgPrice={item.avgPrice}
-                      lastUpdated={item.modeDate || item.lastUpdated}
-                      stale={compareMode === "latest"}
-                      freshnessDays={item.modeFreshnessDays}
-                      freshnessText={
-                        compareMode === "today"
-                          ? item.modeHasData
-                            ? t.today
-                            : t.todayDataUnavailable
-                          : getLatestFreshnessLabel(item.modeFreshnessDays)
-                      }
-                      isBest={idx === 0}
-                      rank={idx + 1}
-                      bestLabel={idx === 0 ? bestLabel : ""}
-                    />
-                  ))}
+                  {launchRows.map((item, idx) => {
+                    const displayPrice = item.todayPrice ?? item.avgPrice ?? item.price ?? item.modal_price;
+                    return (
+                      <MandiCard
+                        key={`${item.mandi}-${idx}`}
+                        mandi={item.mandi}
+                        price={Number(displayPrice)}
+                        todayPrice={Number(displayPrice)}
+                        avgPrice={Number(item.avgPrice ?? displayPrice)}
+                        lastUpdated={item.lastUpdated}
+                        stale={false}
+                        freshnessDays={item.freshnessDays}
+                        freshnessText={item.lastUpdated || ""}
+                        isBest={idx === 0}
+                        rank={idx + 1}
+                        bestLabel={idx === 0 ? bestLabel : ""}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             )}
 
             <p className="text-center text-xs text-gray-400 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {t.mandiCountSummary.replace("{count}", displayedMandis.length)}
+              {t.mandiCountSummary.replace("{count}", launchRows.length)}
             </p>
           </>
         )}
