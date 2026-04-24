@@ -16,7 +16,7 @@ export default function Comparison() {
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState(false);
   const [compareData, setCompareData] = useState(null);
-  const [compareMode, setCompareMode] = useState("today");
+  const [compareMode, setCompareMode] = useState("latest");
 
   useEffect(() => {
     let cancelled = false;
