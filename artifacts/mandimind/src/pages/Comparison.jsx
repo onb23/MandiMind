@@ -44,7 +44,9 @@ export default function Comparison() {
     async function load() {
       setLoading(true);
       setError(false);
-      const result = await fetchCompare(selectedCrop, "Maharashtra", 7);
+      import { fetchCompare } from "../utils/api";
+
+const result = await fetchCompare(selectedCrop, "Maharashtra");
       if (!cancelled) {
         if (result.source === "error") {
           setError(true);
