@@ -50,7 +50,7 @@ export default function Comparison() {
 
       try {
         const res = await fetch(
-          `https://api.mandimind.tech/api/compare?crop=${encodeURIComponent(selectedCrop)}&state=Maharashtra&days=5&t=${Date.now()}`
+          `https://mandimind.omkarborade-11.workers.dev/api/compare?crop=${encodeURIComponent(selectedCrop)}&state=Maharashtra&days=5&t=${Date.now()}`
         );
         const result = await res.json();
 
