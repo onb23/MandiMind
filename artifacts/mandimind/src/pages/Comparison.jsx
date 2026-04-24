@@ -75,7 +75,7 @@ const result = await res.json();
         selectedPrice,
       };
     })
-    .filter((m) => {
+    .filter((m) => m?.mandi && Number.isFinite(m.displayPrice))
       const hasMandi = typeof m?.mandi === "string" && m.mandi.trim().length > 0;
       const hasAnyPrice =
         m?.selectedPrice !== null &&
