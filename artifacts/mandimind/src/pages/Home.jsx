@@ -25,15 +25,15 @@ export default function Home() {
   const [cropLoading, setCropLoading] = useState(true);
   const [cropError, setCropError] = useState("");
 
-  const [mandiOptions, setMandiOptions] = useState([]);
+  const [mandiRows, setMandiRows] = useState([]);
   const [mandiLoading, setMandiLoading] = useState(false);
   const [mandiError, setMandiError] = useState("");
 
   const visibleMandis = useMemo(() => {
-    return mandiOptions;
-  }, [mandiOptions]);
+    return mandiRows;
+  }, [mandiRows]);
   const hasVisibleMandis = visibleMandis.length > 0;
-  const hasLowMandiAvailability = selectedCrop && !mandiLoading && !mandiError && mandiOptions.length > 0 && mandiOptions.length <= 2;
+  const hasLowMandiAvailability = selectedCrop && !mandiLoading && !mandiError && mandiRows.length > 0 && mandiRows.length <= 2;
 
   const handleCropChange = (cropId) => {
     setSelectedCrop(cropId);
@@ -87,7 +87,7 @@ export default function Home() {
 
     async function loadMandis() {
       if (!selectedCrop) {
-        setMandiOptions([]);
+        setMandiRows([]);
         setMandiError("");
         setMandiLoading(false);
         return;
@@ -101,7 +101,7 @@ export default function Home() {
       if (cancelled) return;
 
       if (result?.source === "error") {
-        setMandiOptions([]);
+        setMandiRows([]);
         setMandiError(t.liveMandiTemporarilyUnavailable);
       } else {
         const validMandis = (Array.isArray(result?.mandis) ? result.mandis : []).filter((item) => {
@@ -111,7 +111,7 @@ export default function Home() {
           return Boolean(mandiName) && hasAnyPrice;
         });
 
-        setMandiOptions(validMandis);
+        setMandiRows(validMandis);
         if (selectedMandi && !validMandis.some((item) => item.mandi === selectedMandi)) {
           setSelectedMandi("");
         }
@@ -273,7 +273,7 @@ export default function Home() {
               `/input?crop=${selectedCrop}&mandi=${encodeURIComponent(selectedMandi)}&state=Maharashtra`
             )
           }
-          disabled={!selectedCrop || !selectedMandi || !hasVisibleMandis || Boolean(mandiError) || mandiLoading}
+          disabled={!selectedCrop || !selectedMandi}
           className="w-full bg-[#feb234] text-[#1e1c10] font-bold text-lg py-4 rounded-xl shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
           style={{ fontFamily: "Manrope, sans-serif", minHeight: "56px" }}
         >

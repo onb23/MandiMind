@@ -63,18 +63,21 @@ export default function Comparison() {
   const rawMandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
   const allAvailableRows = rawMandis
     .map((m) => {
-      const displayPrice =
-        m?.todayPrice ?? m?.avgPrice ?? m?.price ?? m?.modal_price;
-      const numericPrice = Number(String(displayPrice ?? "").replace(/,/g, ""));
+      const selectedPrice = m?.todayPrice ?? m?.avgPrice ?? m?.price ?? m?.modal_price;
+      const numericPrice = Number(String(selectedPrice ?? "").replace(/,/g, ""));
       return {
         ...m,
         displayPrice: numericPrice,
+        selectedPrice,
       };
     })
     .filter((m) => {
       const hasMandi = typeof m?.mandi === "string" && m.mandi.trim().length > 0;
-      const hasValidPrice = Number.isFinite(m.displayPrice) && m.displayPrice > 0;
-      return hasMandi && hasValidPrice;
+      const hasAnyPrice =
+        m?.selectedPrice !== null &&
+        m?.selectedPrice !== undefined &&
+        String(m.selectedPrice).trim() !== "";
+      return hasMandi && hasAnyPrice;
     })
     .sort((a, b) => {
       const dateA = new Date(a?.lastUpdated).getTime();
@@ -173,9 +176,9 @@ export default function Comparison() {
                   <MandiCard
                     key={`${item.mandi}-${idx}`}
                     mandi={item.mandi}
-                    price={Number(item.displayPrice)}
-                    todayPrice={Number(item.displayPrice)}
-                    avgPrice={Number(item.displayPrice)}
+                    price={Number(item.selectedPrice)}
+                    todayPrice={Number(item.selectedPrice)}
+                    avgPrice={Number(item.selectedPrice)}
                     lastUpdated={item.lastUpdated}
                     stale={item.stale ?? false}
                     freshnessDays={item.freshnessDays}
