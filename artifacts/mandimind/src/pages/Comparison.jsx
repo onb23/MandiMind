@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
+import { fetchAvailableCrops, fetchAvailableMandis, getFreshnessMessage } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
 
 export default function Comparison() {
@@ -56,9 +56,23 @@ export default function Comparison() {
     return () => { cancelled = true; };
   }, [selectedCrop]);
 
-  const mandis = compareData?.mandis || [];
-  const modeMandis = getMandisForPriceMode(mandis, compareMode, { includeTodayInLatest: true });
-  const todayMandiCount = mandis.filter((item) => item?.todayOption?.isUsable).length;
+  const rawMandis = Array.isArray(compareData?.mandis)
+    ? compareData.mandis
+    : [];
+
+  const filteredMandis =
+    compareMode === "today"
+      ? rawMandis.filter((m) => m.todayPrice != null)
+      : rawMandis.filter((m) => m.todayPrice != null || m.avgPrice != null);
+
+  const mandis = filteredMandis.map((item) => ({
+    ...item,
+    modePrice: item.todayPrice ?? item.avgPrice,
+    modeDate: compareMode === "today" ? item.todayDate : (item.todayDate || item.lastUpdated),
+    modeFreshnessDays: compareMode === "today" ? 0 : item.freshnessDays,
+    modeHasData: compareMode === "today" ? item.todayPrice != null : (item.todayPrice != null || item.avgPrice != null),
+  }));
+  const todayMandiCount = rawMandis.filter((item) => item?.todayPrice != null).length;
   const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
   const sortFn = (a, b) => {
     if (compareMode === "latest") {
@@ -74,14 +88,14 @@ export default function Comparison() {
     if (byFreshness !== 0) return byFreshness;
     return a.mandi.localeCompare(b.mandi);
   };
-  const displayedMandis = [...modeMandis].sort(sortFn);
+  const displayedMandis = [...mandis].sort(sortFn);
   const bestMandi = displayedMandis.find((item) => Number.isFinite(item.modePrice) && item.modePrice > 0) || null;
   const bestLabel = bestMandi
     ? compareMode === "today"
       ? t.comparisonBestPriceToday
       : t.comparisonBestLatestPrice
     : "";
-  const lastUpdated = compareData?.lastUpdated || displayedMandis[0]?.lastUpdated || mandis[0]?.lastUpdated;
+  const lastUpdated = compareData?.lastUpdated || displayedMandis[0]?.lastUpdated || rawMandis[0]?.lastUpdated;
   const comparableMandis = displayedMandis.filter(
     (item) => Number.isFinite(item.todayPrice) && Number.isFinite(item.avgPrice)
   );
@@ -114,8 +128,8 @@ export default function Comparison() {
   const showTodayUpdatingNote = compareMode === "today"
     && !loading
     && !error
-    && mandis.length > 0
-    && todayMandiCount < mandis.length;
+    && rawMandis.length > 0
+    && todayMandiCount < rawMandis.length;
   const recentModeDate = compareMode === "latest"
     ? displayedMandis[0]?.modeDate || null
     : null;
@@ -220,7 +234,7 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && mandis.length === 0 && (
+        {!loading && !error && filteredMandis.length === 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
             <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.noMandiDataLast3Days}
@@ -229,7 +243,7 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && mandis.length > 0 && (
+        {!loading && !error && filteredMandis.length > 0 && (
           <>
             {insightType && (
               <div className={`rounded-xl border p-3 mb-3 ${insightStyles[insightType]}`}>
@@ -271,7 +285,7 @@ export default function Comparison() {
                     <MandiCard
                       key={`${compareMode}-${item.mandi}`}
                       mandi={item.mandi}
-                      todayPrice={item.modePrice}
+                      todayPrice={item.todayPrice ?? item.avgPrice}
                       avgPrice={item.avgPrice}
                       lastUpdated={item.modeDate || item.lastUpdated}
                       stale={compareMode === "latest"}
