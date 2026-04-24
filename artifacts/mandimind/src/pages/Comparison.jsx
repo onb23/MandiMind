@@ -59,6 +59,11 @@ export default function Comparison() {
 
   const rawMandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
 
+  const visibleMandis =
+    compareMode === "today"
+      ? rawMandis.filter((m) => m?.todayPrice != null)
+      : rawMandis.filter((m) => m?.todayPrice != null || m?.avgPrice != null);
+
   const rowsToRender =
     compareMode === "today"
       ? rawMandis.filter((m) => m.todayPrice != null)
@@ -233,7 +238,7 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && rowsToRender.length === 0 && (
+        {!loading && !error && visibleMandis.length === 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
             <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.noMandiDataLast3Days}
@@ -242,7 +247,7 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && rowsToRender.length > 0 && (
+        {!loading && !error && visibleMandis.length > 0 && (
           <>
             {insightType && (
               <div className={`rounded-xl border p-3 mb-3 ${insightStyles[insightType]}`}>
@@ -271,7 +276,7 @@ export default function Comparison() {
               </div>
             )}
 
-            {displayedMandis.length > 0 && (
+            {visibleMandis.length > 0 && (
               <div className="mb-2">
                 <h2
                   className={`text-base font-bold mb-2 ${compareMode === "today" ? "text-[#004c22]" : "text-[#775d00]"}`}
@@ -280,7 +285,7 @@ export default function Comparison() {
                   {compareMode === "today" ? t.liveToday : t.latestAvailableLast3Days}
                 </h2>
                 <div className="space-y-3">
-                  {displayedMandis.map((item, idx) => (
+                  {visibleMandis.map((item, idx) => (
                     <MandiCard
                       key={`${compareMode}-${item.mandi}`}
                       mandi={item.mandi}
@@ -307,7 +312,7 @@ export default function Comparison() {
             )}
 
             <p className="text-center text-xs text-gray-400 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {t.mandiCountSummary.replace("{count}", rowsToRender.length)}
+              {t.mandiCountSummary.replace("{count}", visibleMandis.length)}
             </p>
           </>
         )}
