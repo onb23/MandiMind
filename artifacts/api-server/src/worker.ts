@@ -289,6 +289,28 @@ async function incrementCounter(kv: KVNamespace, date: string, eventName: string
   await kv.put(key, String(next), { expirationTtl: 60 * 60 * 24 * 45 });
 }
 
+function parseNumericPrice(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const normalized = Number(String(value).replace(/,/g, ""));
+  if (!Number.isFinite(normalized) || normalized <= 0) return null;
+  return normalized;
+}
+
+function extractModalPrice(raw: Record<string, unknown>): number | null {
+  const candidates = [
+    raw.modal_price,
+    raw.modalPrice,
+    raw.modal_price_rs,
+    raw["modal_price/quintal"],
+    raw["Modal Price"],
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseNumericPrice(candidate);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
 async function fetchDataGov(
   apiKey: string,
   commodity: string,
@@ -316,17 +338,24 @@ async function fetchDataGov(
   const body = await res.json() as { records?: any[] };
 
   return (body.records || [])
-    .filter((r: any) => r.modal_price && Number(r.modal_price) >= 50 && r.arrival_date)
-    .map((r: any) => ({
-  date:        r.arrival_date,
-  market:      r.market,
-  district:    r.district ?? "",
-  commodity:   r.commodity,
-  price:       Number(r.modal_price),
-  min_price:   Number(r.min_price),
-  max_price:   Number(r.max_price),
-  modal_price: Number(r.modal_price),
-}))
+    .map((r: any) => {
+      const market = String(r.market ?? r.mandi ?? "").trim();
+      const modalPrice = extractModalPrice(r);
+      if (!market || !r.arrival_date || modalPrice === null) return null;
+      const minPrice = parseNumericPrice(r.min_price) ?? modalPrice;
+      const maxPrice = parseNumericPrice(r.max_price) ?? modalPrice;
+      return {
+        date: r.arrival_date,
+        market,
+        district: r.district ?? "",
+        commodity: r.commodity,
+        price: modalPrice,
+        min_price: minPrice,
+        max_price: maxPrice,
+        modal_price: modalPrice,
+      } satisfies PriceRecord;
+    })
+    .filter((r): r is PriceRecord => r !== null)
     .sort((a: PriceRecord, b: PriceRecord) => parseArrivalDate(a.date) - parseArrivalDate(b.date));
 }
 
@@ -636,33 +665,48 @@ if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       }
     }
 
-    const byMandi = new Map<string, PriceRecord[]>();
-    for (const r of candidateRecords) {
-      if (!byMandi.has(r.market)) byMandi.set(r.market, []);
-      byMandi.get(r.market)!.push(r);
+    const mandis = mode === "today"
+      ? candidateRecords
+        .map((row) => ({
+          mandi: row.market,
+          todayPrice: row.modal_price,
+          avgPrice: row.modal_price,
+          lastUpdated: row.date,
+          stale: false,
+        }))
+        .filter((row) => Boolean(row.mandi) && Number.isFinite(row.todayPrice) && row.todayPrice > 0)
+      : (() => {
+        const byMandi = new Map<string, PriceRecord[]>();
+        for (const r of candidateRecords) {
+          if (!byMandi.has(r.market)) byMandi.set(r.market, []);
+          byMandi.get(r.market)!.push(r);
+        }
+        return Array.from(byMandi.entries())
+          .map(([mandi, recs]) => {
+            const sorted = [...recs].sort((a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date));
+            const latest = sorted[0];
+            const recentSlice = sorted.slice(0, days);
+            const avgPrice = recentSlice.length
+              ? Math.round(recentSlice.reduce((sum, r) => sum + r.modal_price, 0) / recentSlice.length)
+              : 0;
+
+            const latestDate = latest?.date ?? null;
+            const isRealToday = latestDate === todayKey;
+
+            return {
+              mandi,
+              todayPrice: isRealToday ? latest.modal_price : null,
+              avgPrice,
+              lastUpdated: latestDate,
+              stale: latestDate ? isDataStale(latestDate) : true,
+            };
+          })
+          .sort((a, b) => (b.todayPrice ?? 0) - (a.todayPrice ?? 0));
+      })();
+
+    if (mode === "today" && todayRows.length > 0 && mandis.length > 0) {
+      status = "today_has_data";
     }
-
-    const mandis = Array.from(byMandi.entries())
-  .map(([mandi, recs]) => {
-    const sorted = [...recs].sort((a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date));
-    const latest = sorted[0];
-    const recentSlice = sorted.slice(0, days);
-    const avgPrice = recentSlice.length
-      ? Math.round(recentSlice.reduce((sum, r) => sum + r.modal_price, 0) / recentSlice.length)
-      : 0;
-
-    const latestDate = latest?.date ?? null;
-    const isRealToday = latestDate === todayKey;
-
-    return {
-      mandi,
-      todayPrice: isRealToday ? latest.modal_price : null,
-      avgPrice,
-      lastUpdated: latestDate,
-      stale: latestDate ? isDataStale(latestDate) : true,
-    };
-  })
-      .sort((a, b) => b.todayPrice - a.todayPrice);
 
     const data = {
       crop: commodity,

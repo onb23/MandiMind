@@ -217,6 +217,28 @@ function sampleCommodityValues(records: PriceRecord[], sampleSize = 8): string[]
   return [...new Set(records.map((r) => (r.commodity ?? "").trim()).filter(Boolean))].slice(0, sampleSize);
 }
 
+function parseNumericPrice(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const normalized = Number(String(value).replace(/,/g, ""));
+  if (!Number.isFinite(normalized) || normalized <= 0) return null;
+  return normalized;
+}
+
+function extractModalPrice(raw: Record<string, unknown>): number | null {
+  const candidates = [
+    raw.modal_price,
+    raw.modalPrice,
+    raw.modal_price_rs,
+    raw["modal_price/quintal"],
+    raw["Modal Price"],
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseNumericPrice(candidate);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
 interface PriceRecord {
   date: string;
   market: string;
@@ -258,17 +280,22 @@ async function fetchDataGov(
   const json = await res.json() as { records?: any[] };
 
   const records: PriceRecord[] = (json.records || [])
-    .filter((r: any) => r.modal_price && Number(r.modal_price) >= 50 && r.arrival_date)
-    .map((r: any) => ({
-      date:        r.arrival_date,
-      market:      r.market,
-      state:       r.state ?? "",
-      commodity:   r.commodity,
-      price:       Number(r.modal_price),
-      min_price:   Number(r.min_price),
-      max_price:   Number(r.max_price),
-      modal_price: Number(r.modal_price),
-    }))
+    .map((r: any) => {
+      const market = String(r.market ?? r.mandi ?? "").trim();
+      const modalPrice = extractModalPrice(r);
+      if (!market || !r.arrival_date || modalPrice === null) return null;
+      return {
+        date: r.arrival_date,
+        market,
+        state: r.state ?? "",
+        commodity: r.commodity,
+        price: modalPrice,
+        min_price: parseNumericPrice(r.min_price) ?? modalPrice,
+        max_price: parseNumericPrice(r.max_price) ?? modalPrice,
+        modal_price: modalPrice,
+      } satisfies PriceRecord;
+    })
+    .filter((r): r is PriceRecord => r !== null)
     .sort((a, b) => {
       const aTs = parseArrivalDate(a.date)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
       const bTs = parseArrivalDate(b.date)?.normalizedTs ?? Number.MIN_SAFE_INTEGER;
