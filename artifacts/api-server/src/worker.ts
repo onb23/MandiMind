@@ -603,26 +603,30 @@ if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     let latestDate: string | null = null;
 
     if (mode === "today") {
-  const hasRealToday = todayRows.some((r) => r.date === todayKey);
+      const hasTodayData = todayRows.some(
+        (r) => Number.isFinite(r.modal_price) && r.modal_price >= 0,
+      );
 
-  if (hasRealToday) {
-    status = "today_has_data";
-    candidateRecords = todayRows.filter((r) => r.date === todayKey);
-    latestDate = todayRows
-      .map((r) => r.date)
-      .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
-  } else if (recentRows.length > 0) {
-    status = "today_no_data_recent_exists";
-    candidateRecords = [];
-    latestDate = recentRows
-      .map((r) => r.date)
-      .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
-  } else {
-    status = "today_no_data_no_recent";
-    candidateRecords = [];
-    latestDate = null;
-  }
-} else {
+      if (hasTodayData) {
+        status = "today_has_data";
+        candidateRecords = todayRows.filter(
+          (r) => Number.isFinite(r.modal_price) && r.modal_price >= 0,
+        );
+        latestDate = candidateRecords
+          .map((r) => r.date)
+          .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+      } else if (recentRows.length > 0) {
+        status = "today_no_data_recent_exists";
+        candidateRecords = [];
+        latestDate = recentRows
+          .map((r) => r.date)
+          .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+      } else {
+        status = "today_no_data_no_recent";
+        candidateRecords = [];
+        latestDate = null;
+      }
+    } else {
       if (recentRows.length > 0) {
         status = "recent_has_data";
         candidateRecords = recentRows;
@@ -643,26 +647,34 @@ if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     }
 
     const mandis = Array.from(byMandi.entries())
-  .map(([mandi, recs]) => {
-    const sorted = [...recs].sort((a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date));
-    const latest = sorted[0];
-    const recentSlice = sorted.slice(0, days);
-    const avgPrice = recentSlice.length
-      ? Math.round(recentSlice.reduce((sum, r) => sum + r.modal_price, 0) / recentSlice.length)
-      : 0;
+      .map(([mandi, recs]) => {
+        const sorted = [...recs].sort(
+          (a, b) => parseArrivalDate(b.date) - parseArrivalDate(a.date),
+        );
+        const latest = sorted[0];
+        const recentSlice = sorted.slice(0, days);
+        const avgPrice = recentSlice.length
+          ? Math.round(
+              recentSlice.reduce((sum, r) => sum + r.modal_price, 0) /
+                recentSlice.length,
+            )
+          : 0;
 
-    const latestDate = latest?.date ?? null;
-    const isRealToday = latestDate === todayKey;
+        const latestDate = latest?.date ?? null;
+        const latestPrice = latest?.modal_price;
 
-    return {
-      mandi,
-      todayPrice: isRealToday ? latest.modal_price : null,
-      avgPrice,
-      lastUpdated: latestDate,
-      stale: latestDate ? isDataStale(latestDate) : true,
-    };
-  })
-      .sort((a, b) => b.todayPrice - a.todayPrice);
+        return {
+          mandi,
+          todayPrice:
+            typeof latestPrice === "number" && Number.isFinite(latestPrice) && latestPrice >= 0
+              ? latestPrice
+              : null,
+          avgPrice,
+          lastUpdated: latestDate,
+          stale: latestDate ? isDataStale(latestDate) : true,
+        };
+      })
+      .sort((a, b) => (b.todayPrice ?? -1) - (a.todayPrice ?? -1));
 
     const data = {
       crop: commodity,
@@ -674,7 +686,7 @@ if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       todayCount: todayRows.length,
       recentCount: recentRows.length,
       recordCount: candidateRecords.length,
-      usableCount: mandis.length,
+      usableCount: mandis.filter((m) => m.todayPrice !== null).length,
       freshnessDays: getFreshnessDays(latestDate),
       cacheHit: false,
       source: env.MANDIMIND_CACHE ? "live" : "live-no-kv",
