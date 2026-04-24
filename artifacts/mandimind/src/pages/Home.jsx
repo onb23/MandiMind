@@ -13,6 +13,25 @@ function FieldSkeleton() {
   );
 }
 
+function formatMandiDate(dateStr) {
+  if (!dateStr) return "";
+  const parts = String(dateStr).split("/");
+  const date = parts.length === 3
+    ? new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]))
+    : new Date(dateStr);
+
+  if (Number.isNaN(date.getTime())) return String(dateStr);
+  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
+function getMandiOptionLabel(item) {
+  const priceText = Number.isFinite(item?.displayPrice)
+    ? `₹${Number(item.displayPrice).toLocaleString("en-IN")}`
+    : "Price available";
+  const dateText = formatMandiDate(item?.lastUpdated);
+  return `${item.mandi} — ${priceText}${dateText ? ` (${dateText})` : ""}`;
+}
+
 export default function Home() {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -234,7 +253,7 @@ export default function Home() {
             </option>
             {visibleMandis.map((item) => (
               <option key={item.mandi} value={item.mandi}>
-                {item.mandi}
+                {getMandiOptionLabel(item)}
               </option>
             ))}
           </select>
