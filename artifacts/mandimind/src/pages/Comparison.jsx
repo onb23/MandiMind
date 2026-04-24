@@ -71,7 +71,7 @@ const result = await fetchCompare(selectedCrop, "Maharashtra");
         displayPrice: numericPrice,
       };
     })
-    .filter((m) => m?.mandi && Number.isFinite(m.displayPrice) && m.displayPrice > 0)
+    .filter((m) => m?.mandi && m.displayPrice)
     .sort((a, b) => {
       const dateA = new Date(a?.lastUpdated).getTime();
       const dateB = new Date(b?.lastUpdated).getTime();
