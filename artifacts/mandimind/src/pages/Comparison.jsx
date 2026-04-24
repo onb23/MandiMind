@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
-import { fetchAvailableCrops, fetchAvailableMandis, getMandisForPriceMode, getFreshnessMessage } from "../utils/mandiAvailability";
+import { fetchAvailableCrops, fetchAvailableMandis } from "../utils/mandiAvailability";
 import MandiCard from "../components/MandiCard";
 
 export default function Comparison() {
@@ -12,8 +12,8 @@ export default function Comparison() {
   const [cropList, setCropList] = useState([]);
   const [cropLoading, setCropLoading] = useState(true);
 
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [compareData, setCompareData] = useState(null);
   const [compareMode, setCompareMode] = useState("today");
 
@@ -32,7 +32,9 @@ export default function Comparison() {
     }
 
     loadCrops();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -53,89 +55,37 @@ export default function Comparison() {
       }
     }
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedCrop]);
 
   const rawMandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
-  const launchRows = rawMandis.filter((m) => {
-    const price = m?.todayPrice ?? m?.avgPrice ?? m?.price ?? m?.modal_price;
-    return m?.mandi && Number.isFinite(Number(price));
-  });
-  console.log("LAUNCH COMPARE ROWS", launchRows);
-  const mandis = rawMandis;
-  const modeMandis = getMandisForPriceMode(mandis, compareMode, { includeTodayInLatest: true });
-  const todayMandiCount = mandis.filter((item) => item?.todayOption?.isUsable).length;
-  const scorePrice = (value) => (typeof value === "number" && value > 0 ? value : Number.NEGATIVE_INFINITY);
-  const sortFn = (a, b) => {
-    if (compareMode === "latest") {
-      const byFreshness = (a.modeFreshnessDays ?? 999) - (b.modeFreshnessDays ?? 999);
-      if (byFreshness !== 0) return byFreshness;
-      const byPrice = scorePrice(b.modePrice) - scorePrice(a.modePrice);
-      if (byPrice !== 0) return byPrice;
-      return a.mandi.localeCompare(b.mandi);
-    }
-    const byPrice = scorePrice(b.modePrice) - scorePrice(a.modePrice);
-    if (byPrice !== 0) return byPrice;
-    const byFreshness = (a.modeFreshnessDays ?? 999) - (b.modeFreshnessDays ?? 999);
-    if (byFreshness !== 0) return byFreshness;
-    return a.mandi.localeCompare(b.mandi);
-  };
-  const displayedMandis = [...modeMandis].sort(sortFn);
-  const bestMandi = displayedMandis.find((item) => Number.isFinite(item.modePrice) && item.modePrice > 0) || null;
-  const bestLaunchMandi = launchRows[0] || null;
-  const bestLabel = bestMandi
-    ? compareMode === "today"
-      ? t.comparisonBestPriceToday
-      : t.comparisonBestLatestPrice
-    : "";
-  const lastUpdated = compareData?.lastUpdated || launchRows[0]?.lastUpdated || displayedMandis[0]?.lastUpdated || mandis[0]?.lastUpdated;
-  const comparableMandis = displayedMandis.filter(
-    (item) => Number.isFinite(item.todayPrice) && Number.isFinite(item.avgPrice)
-  );
-  const avgTodayPrice = comparableMandis.length
-    ? Math.round(comparableMandis.reduce((sum, item) => sum + item.todayPrice, 0) / comparableMandis.length)
-    : null;
-  const avgRecentPrice = comparableMandis.length
-    ? Math.round(comparableMandis.reduce((sum, item) => sum + item.avgPrice, 0) / comparableMandis.length)
-    : null;
-  const hasInsightData = Number.isFinite(avgTodayPrice) && Number.isFinite(avgRecentPrice) && avgRecentPrice > 0;
-  const comparisonGapPct = hasInsightData ? ((avgTodayPrice - avgRecentPrice) / avgRecentPrice) * 100 : null;
-  const similarityThresholdPct = 1;
-  const insightType = !hasInsightData
-    ? null
-    : comparisonGapPct > similarityThresholdPct
-      ? "sell"
-      : comparisonGapPct < -similarityThresholdPct
-        ? "wait"
-        : "neutral";
-  const insightStyles = {
-    sell: "bg-green-50 border-green-200 text-green-800",
-    wait: "bg-amber-50 border-amber-200 text-amber-800",
-    neutral: "bg-blue-50 border-blue-200 text-blue-800",
-  };
-  const insightTexts = {
-    sell: t.comparisonInsightSell,
-    wait: t.comparisonInsightWait,
-    neutral: t.comparisonInsightNeutral,
-  };
-  const showTodayUpdatingNote = compareMode === "today"
-    && !loading
-    && !error
-    && mandis.length > 0
-    && todayMandiCount < mandis.length;
-  const recentModeDate = compareMode === "latest"
-    ? displayedMandis[0]?.modeDate || null
-    : null;
-  const freshnessBanner = getFreshnessMessage(compareData?.freshnessDays ?? displayedMandis[0]?.modeFreshnessDays, t);
-  const showModeBanner = showTodayUpdatingNote || compareMode === "latest";
-  const getLatestFreshnessLabel = (freshnessDays) => {
-    if (!Number.isFinite(freshnessDays)) return t.latestAvailable;
-    if (freshnessDays <= 0) return t.today;
-    if (freshnessDays === 1) return t.oneDayAgo;
-    if (freshnessDays === 2) return t.twoDaysAgo;
-    if (freshnessDays === 3) return t.threeDaysAgo;
-    return t.daysAgoGeneric.replace("{days}", freshnessDays);
-  };
+  const allAvailableRows = rawMandis
+    .map((m) => {
+      const displayPrice = m?.todayPrice ?? m?.avgPrice ?? m?.price ?? m?.modal_price;
+      const numericPrice = Number(String(displayPrice).replace(/,/g, ""));
+      return {
+        ...m,
+        displayPrice: numericPrice,
+      };
+    })
+    .filter((m) => m?.mandi && Number.isFinite(m.displayPrice) && m.displayPrice > 0)
+    .sort((a, b) => {
+      const dateA = new Date(a?.lastUpdated).getTime();
+      const dateB = new Date(b?.lastUpdated).getTime();
+      const hasValidDateA = Number.isFinite(dateA);
+      const hasValidDateB = Number.isFinite(dateB);
+
+      if (hasValidDateA && hasValidDateB && dateB !== dateA) return dateB - dateA;
+      if (hasValidDateA && !hasValidDateB) return -1;
+      if (!hasValidDateA && hasValidDateB) return 1;
+      return b.displayPrice - a.displayPrice;
+    });
+
+  const bestMandi = allAvailableRows[0] || null;
+  const bestLabel = t.comparisonBestLatestPrice || t.comparisonBestPriceToday;
+  const lastUpdated = compareData?.lastUpdated || allAvailableRows[0]?.lastUpdated;
 
   return (
     <div className="min-h-screen bg-[#fff9eb] pb-24">
@@ -151,11 +101,7 @@ export default function Comparison() {
             {t.updatedThrough}: {lastUpdated}
           </p>
         )}
-        {!loading && !error && !showModeBanner && (
-          <p className="text-xs text-blue-700 mb-3" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-            {freshnessBanner}
-          </p>
-        )}
+
         <select
           value={selectedCrop}
           onChange={(e) => setSelectedCrop(e.target.value)}
@@ -165,7 +111,9 @@ export default function Comparison() {
         >
           <option value="">{cropLoading ? t.loadingAvailableCrops : t.selectCrop}</option>
           {cropList.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
 
@@ -191,21 +139,6 @@ export default function Comparison() {
             {t.priceTypeLatest}
           </button>
         </div>
-        {!loading && !error && showModeBanner && (
-          <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
-            {showTodayUpdatingNote ? (
-              <p className="text-xs text-blue-800" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {t.todayModeUpdatingNote}
-              </p>
-            ) : (
-              <p className={`text-xs ${recentModeDate ? "text-blue-800" : "text-blue-600"}`} style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                {recentModeDate
-                  ? t.recentModeDateNoteCompare.replace("{date}", recentModeDate)
-                  : t.recentModeDateUnavailable}
-              </p>
-            )}
-          </div>
-        )}
       </div>
 
       <div className="px-4">
@@ -227,7 +160,7 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && launchRows.length === 0 && (
+        {!loading && !error && allAvailableRows.length === 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
             <p className="text-amber-700 font-semibold text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
               {t.noMandiDataLast3Days}
@@ -236,69 +169,45 @@ export default function Comparison() {
           </div>
         )}
 
-        {!loading && !error && launchRows.length > 0 && (
+        {!loading && !error && allAvailableRows.length > 0 && (
           <>
-            {insightType && (
-              <div className={`rounded-xl border p-3 mb-3 ${insightStyles[insightType]}`}>
-                <p className="text-xs font-semibold mb-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  {t.simpleInsight}
-                </p>
-                <p className="text-sm font-semibold" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  {insightTexts[insightType]}
-                </p>
-                <p className="text-xs mt-1" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-                  {t.comparisonInsightBasis
-                    .replace("{today}", avgTodayPrice.toLocaleString("en-IN"))
-                    .replace("{recent}", avgRecentPrice.toLocaleString("en-IN"))}
-                </p>
-              </div>
-            )}
-
-            {bestLaunchMandi && launchRows.length > 0 && (
+            {bestMandi && (
               <div className="bg-[#004c22] rounded-xl p-3 mb-4 flex items-center justify-between">
                 <span className="text-white text-sm" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
                   {bestLabel}:
                 </span>
                 <span className="text-[#feb234] font-bold text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
-                  {bestLaunchMandi.mandi} — ₹{Number(bestLaunchMandi.todayPrice ?? bestLaunchMandi.avgPrice ?? bestLaunchMandi.price ?? bestLaunchMandi.modal_price).toLocaleString("en-IN")}
+                  {bestMandi.mandi} — ₹{Number(bestMandi.displayPrice).toLocaleString("en-IN")}
                 </span>
               </div>
             )}
 
-            {launchRows.length > 0 && (
-              <div className="mb-2">
-                <h2
-                  className={`text-base font-bold mb-2 ${compareMode === "today" ? "text-[#004c22]" : "text-[#775d00]"}`}
-                  style={{ fontFamily: "Manrope, sans-serif" }}
-                >
-                  {compareMode === "today" ? t.liveToday : t.latestAvailableLast3Days}
-                </h2>
-                <div className="space-y-3">
-                  {launchRows.map((item, idx) => {
-                    const displayPrice = item.todayPrice ?? item.avgPrice ?? item.price ?? item.modal_price;
-                    return (
-                      <MandiCard
-                        key={`${item.mandi}-${idx}`}
-                        mandi={item.mandi}
-                        price={Number(displayPrice)}
-                        todayPrice={Number(displayPrice)}
-                        avgPrice={Number(item.avgPrice ?? displayPrice)}
-                        lastUpdated={item.lastUpdated}
-                        stale={false}
-                        freshnessDays={item.freshnessDays}
-                        freshnessText={item.lastUpdated || ""}
-                        isBest={idx === 0}
-                        rank={idx + 1}
-                        bestLabel={idx === 0 ? bestLabel : ""}
-                      />
-                    );
-                  })}
-                </div>
+            <div className="mb-2">
+              <h2 className="text-base font-bold mb-2 text-[#004c22]" style={{ fontFamily: "Manrope, sans-serif" }}>
+                {t.latestAvailableLast3Days}
+              </h2>
+              <div className="space-y-3">
+                {allAvailableRows.map((item, idx) => (
+                  <MandiCard
+                    key={`${item.mandi}-${idx}`}
+                    mandi={item.mandi}
+                    price={Number(item.displayPrice)}
+                    todayPrice={Number(item.displayPrice)}
+                    avgPrice={Number(item.displayPrice)}
+                    lastUpdated={item.lastUpdated}
+                    stale={false}
+                    freshnessDays={item.freshnessDays}
+                    freshnessText={item.lastUpdated || ""}
+                    isBest={idx === 0}
+                    rank={idx + 1}
+                    bestLabel={idx === 0 ? bestLabel : ""}
+                  />
+                ))}
               </div>
-            )}
+            </div>
 
             <p className="text-center text-xs text-gray-400 mt-4" style={{ fontFamily: "Be Vietnam Pro, sans-serif" }}>
-              {t.mandiCountSummary.replace("{count}", launchRows.length)}
+              {t.mandiCountSummary.replace("{count}", allAvailableRows.length)}
             </p>
           </>
         )}
