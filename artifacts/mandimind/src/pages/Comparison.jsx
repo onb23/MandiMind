@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
 import { fetchAvailableCrops } from "../utils/mandiAvailability";
-import { fetchCompare } from "../utils/api";
 import MandiCard from "../components/MandiCard";
 
 export default function Comparison() {
@@ -19,15 +18,19 @@ export default function Comparison() {
 
   useEffect(() => {
     let cancelled = false;
+
     async function loadCrops() {
       setCropLoading(true);
-      const crops = await fetchAvailableCrops("Maharashtra");
-      if (!cancelled) {
-        setCropList(crops);
-        if (crops.length > 0 && !crops.some((crop) => crop.id === selectedCrop)) {
-          setSelectedCrop(crops[0].id);
+      try {
+        const crops = await fetchAvailableCrops("Maharashtra");
+        if (!cancelled) {
+          setCropList(Array.isArray(crops) ? crops : []);
+          if (Array.isArray(crops) && crops.length > 0 && !crops.some((crop) => crop.id === selectedCrop)) {
+            setSelectedCrop(crops[0].id);
+          }
         }
-        setCropLoading(false);
+      } finally {
+        if (!cancelled) setCropLoading(false);
       }
     }
 
@@ -40,24 +43,36 @@ export default function Comparison() {
   useEffect(() => {
     if (!selectedCrop) return;
     let cancelled = false;
+
     async function load() {
       setLoading(true);
       setError(false);
-      const res = await fetch(
-  `https://api.mandimind.tech/api/compare?crop=${selectedCrop}&state=Maharashtra&days=5&t=${Date.now()}`
-);
 
-const result = await res.json();
-      if (!cancelled) {
-        if (result.source === "error") {
+      try {
+        const res = await fetch(
+          `https://api.mandimind.tech/api/compare?crop=${encodeURIComponent(selectedCrop)}&state=Maharashtra&days=5&t=${Date.now()}`
+        );
+        const result = await res.json();
+
+        if (!cancelled) {
+          if (!res.ok || result?.source === "error" || result?.error) {
+            setError(true);
+            setCompareData(null);
+          } else {
+            setCompareData(result);
+          }
+        }
+      } catch (err) {
+        console.error("Compare API failed", err);
+        if (!cancelled) {
           setError(true);
           setCompareData(null);
-        } else {
-          setCompareData(result);
         }
-        setLoading(false);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
+
     load();
     return () => {
       cancelled = true;
@@ -66,42 +81,18 @@ const result = await res.json();
 
   const rawMandis = Array.isArray(compareData?.mandis) ? compareData.mandis : [];
 
-const allAvailableRows = rawMandis
-  .map((m) => {
-    const selectedPrice =
-      m?.todayPrice ||
-      m?.avgPrice ||
-      m?.price ||
-      m?.modal_price ||
-      0;
-
-    const numericPrice = Number(String(selectedPrice).replace(/,/g, ""));
-
-    return {
-      ...m,
-      displayPrice: numericPrice,
-      selectedPrice: numericPrice,
-    };
-  })
-  .filter((m) => m?.mandi && Number.isFinite(m.displayPrice) && m.displayPrice > 0)
-  .sort((a, b) => b.displayPrice - a.displayPrice);
+  const allAvailableRows = rawMandis
     .map((m) => {
       const selectedPrice = m?.todayPrice ?? m?.avgPrice ?? m?.price ?? m?.modal_price;
       const numericPrice = Number(String(selectedPrice ?? "").replace(/,/g, ""));
+
       return {
         ...m,
         displayPrice: numericPrice,
-        selectedPrice,
+        selectedPrice: numericPrice,
       };
     })
-    .filter((m) => m?.mandi && Number.isFinite(m.displayPrice))
-      const hasMandi = typeof m?.mandi === "string" && m.mandi.trim().length > 0;
-      const hasAnyPrice =
-        m?.selectedPrice !== null &&
-        m?.selectedPrice !== undefined &&
-        String(m.selectedPrice).trim() !== "";
-      return hasMandi && hasAnyPrice;
-    })
+    .filter((m) => m?.mandi && Number.isFinite(m.displayPrice) && m.displayPrice > 0)
     .sort((a, b) => {
       const dateA = new Date(a?.lastUpdated).getTime();
       const dateB = new Date(b?.lastUpdated).getTime();
@@ -115,7 +106,7 @@ const allAvailableRows = rawMandis
     });
 
   const bestMandi = allAvailableRows[0] || null;
-  const bestLabel = t.comparisonBestLatestPrice || t.comparisonBestPriceToday;
+  const bestLabel = t.comparisonBestLatestPrice || t.comparisonBestPriceToday || "Best available";
   const lastUpdated = compareData?.lastUpdated || allAvailableRows[0]?.lastUpdated;
 
   return (
@@ -199,9 +190,9 @@ const allAvailableRows = rawMandis
                   <MandiCard
                     key={`${item.mandi}-${idx}`}
                     mandi={item.mandi}
-                    price={Number(item.selectedPrice)}
-                    todayPrice={Number(item.selectedPrice)}
-                    avgPrice={Number(item.selectedPrice)}
+                    price={item.displayPrice}
+                    todayPrice={item.displayPrice}
+                    avgPrice={item.displayPrice}
                     lastUpdated={item.lastUpdated}
                     stale={item.stale ?? false}
                     freshnessDays={item.freshnessDays}
