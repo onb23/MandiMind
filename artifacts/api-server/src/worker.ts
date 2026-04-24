@@ -630,28 +630,61 @@ if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
 
     let candidateRecords: PriceRecord[] = [];
     let latestDate: string | null = null;
+    let mappedTodayRows: Array<{
+      mandi: string;
+      todayPrice: number;
+      avgPrice: number;
+      lastUpdated: string | null;
+      stale: false;
+    }> = [];
 
     if (mode === "today") {
-  const hasRealToday = todayRows.some((r) => r.date === todayKey);
+      mappedTodayRows = todayRows
+        .map((record) => {
+          const rawRecord = record as unknown as Record<string, unknown>;
+          const mandi = String(
+            rawRecord.market ??
+            rawRecord.Market ??
+            rawRecord.mandi ??
+            rawRecord.market_name ??
+            "",
+          ).trim();
+          const price =
+            rawRecord.modal_price ??
+            rawRecord.modalPrice ??
+            rawRecord["Modal Price"] ??
+            rawRecord.modal ??
+            rawRecord.price;
+          const dateValue =
+            rawRecord.arrival_date ??
+            rawRecord.Arrival_Date ??
+            rawRecord.date ??
+            rawRecord.Date;
+          const lastUpdated = dateValue === null || dateValue === undefined
+            ? null
+            : String(dateValue);
+          const n = Number(String(price ?? "").replace(/,/g, "").trim());
 
-  if (hasRealToday) {
-    status = "today_has_data";
-    candidateRecords = todayRows.filter((r) => r.date === todayKey);
-    latestDate = todayRows
-      .map((r) => r.date)
-      .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
-  } else if (recentRows.length > 0) {
-    status = "today_no_data_recent_exists";
-    candidateRecords = [];
-    latestDate = recentRows
-      .map((r) => r.date)
-      .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
-  } else {
-    status = "today_no_data_no_recent";
-    candidateRecords = [];
-    latestDate = null;
-  }
-} else {
+          if (!mandi || !Number.isFinite(n) || n <= 0) return null;
+
+          return {
+            mandi,
+            todayPrice: n,
+            avgPrice: n,
+            lastUpdated,
+            stale: false as const,
+          };
+        })
+        .filter((row): row is NonNullable<typeof row> => row !== null);
+
+      candidateRecords = todayRows;
+      latestDate = todayRows
+        .map((r) => r.date)
+        .sort((a, b) => parseArrivalDate(b) - parseArrivalDate(a))[0] ?? null;
+      status = mappedTodayRows.length > 0
+        ? "today_has_data"
+        : "today_no_data_recent_exists";
+    } else {
       if (recentRows.length > 0) {
         status = "recent_has_data";
         candidateRecords = recentRows;
@@ -666,15 +699,7 @@ if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     }
 
     const mandis = mode === "today"
-      ? candidateRecords
-        .map((row) => ({
-          mandi: row.market,
-          todayPrice: row.modal_price,
-          avgPrice: row.modal_price,
-          lastUpdated: row.date,
-          stale: false,
-        }))
-        .filter((row) => Boolean(row.mandi) && Number.isFinite(row.todayPrice) && row.todayPrice > 0)
+      ? mappedTodayRows
       : (() => {
         const byMandi = new Map<string, PriceRecord[]>();
         for (const r of candidateRecords) {
@@ -704,10 +729,6 @@ if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
           .sort((a, b) => (b.todayPrice ?? 0) - (a.todayPrice ?? 0));
       })();
 
-    if (mode === "today" && todayRows.length > 0 && mandis.length > 0) {
-      status = "today_has_data";
-    }
-
     const data = {
       crop: commodity,
       state,
@@ -718,7 +739,7 @@ if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       todayCount: todayRows.length,
       recentCount: recentRows.length,
       recordCount: candidateRecords.length,
-      usableCount: mandis.length,
+      usableCount: mode === "today" ? mappedTodayRows.length : mandis.length,
       freshnessDays: getFreshnessDays(latestDate),
       cacheHit: false,
       source: env.MANDIMIND_CACHE ? "live" : "live-no-kv",
