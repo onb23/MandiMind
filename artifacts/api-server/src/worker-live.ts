@@ -31,6 +31,7 @@ const CROP_MAP: Record<string, string> = {
 const AGMARKNET_CROP_META: Record<string, { group: string; commodity: string }> = {
   onion: { group: "6", commodity: "23" },
   tomato: { group: "6", commodity: "65" },
+  potato: { group: "6", commodity: "24" },
 };
 
 interface PriceRecord {
