@@ -19,11 +19,12 @@ const CROP_MAP: Record<string, string> = {
   tomato: "Tomato",
   wheat: "Wheat",
   soybean: "Soybean",
-  cotton: "Cotton(Unginned)",
+  cotton: "Cotton",
   banana: "Banana",
   potato: "Potato",
   gram: "Gram",
   maize: "Maize",
+  bajra: "Bajra(Pearl Millet/Cumbu)",
 };
 
 // Agmarknet direct IDs discovered from the live website network request.
@@ -32,6 +33,11 @@ const AGMARKNET_CROP_META: Record<string, { group: string; commodity: string }> 
   onion: { group: "6", commodity: "23" },
   tomato: { group: "6", commodity: "65" },
   potato: { group: "6", commodity: "24" },
+  banana: { group: "5", commodity: "19" },
+  cotton: { group: "4", commodity: "15" },
+  wheat: { group: "1", commodity: "1" },
+  maize: { group: "1", commodity: "4" },
+  bajra: { group: "1", commodity: "28" },
 };
 
 interface PriceRecord {
