@@ -30,6 +30,7 @@ const CROP_MAP: Record<string, string> = {
 // Add more crops only after confirming their commodity IDs from Agmarknet.
 const AGMARKNET_CROP_META: Record<string, { group: string; commodity: string }> = {
   onion: { group: "6", commodity: "23" },
+  tomato: { group: "6", commodity: "65" },
 };
 
 interface PriceRecord {
