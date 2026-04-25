@@ -17,18 +17,27 @@ const CACHE_TTL_SECONDS = 60 * 30;
 const CROP_MAP: Record<string, string> = {
   onion: "Onion",
   tomato: "Tomato",
-  wheat: "Wheat",
-  soybean: "Soybean",
-  cotton: "Cotton",
-  banana: "Banana",
   potato: "Potato",
-  gram: "Gram",
+  banana: "Banana",
+  cotton: "Cotton",
+  wheat: "Wheat",
   maize: "Maize",
   bajra: "Bajra(Pearl Millet/Cumbu)",
+  green_chilli: "Green Chilli",
+  chilli: "Green Chilli",
+  brinjal: "Brinjal",
+  cauliflower: "Cauliflower",
+  cabbage: "Cabbage",
+  tur: "Arhar(Tur/Red Gram)(Whole)",
+  arhar: "Arhar(Tur/Red Gram)(Whole)",
+  orange: "Orange",
+  grapes: "Grapes",
+  mango: "Mango",
+  pomegranate: "Pomegranate",
+  soybean: "Soybean",
+  gram: "Gram",
 };
 
-// Agmarknet direct IDs discovered from the live website network request.
-// Add more crops only after confirming their commodity IDs from Agmarknet.
 const AGMARKNET_CROP_META: Record<string, { group: string; commodity: string }> = {
   onion: { group: "6", commodity: "23" },
   tomato: { group: "6", commodity: "65" },
@@ -38,6 +47,17 @@ const AGMARKNET_CROP_META: Record<string, { group: string; commodity: string }> 
   wheat: { group: "1", commodity: "1" },
   maize: { group: "1", commodity: "4" },
   bajra: { group: "1", commodity: "28" },
+  greenchilli: { group: "6", commodity: "73" },
+  chilli: { group: "6", commodity: "73" },
+  brinjal: { group: "6", commodity: "32" },
+  cauliflower: { group: "6", commodity: "31" },
+  cabbage: { group: "6", commodity: "126" },
+  tur: { group: "2", commodity: "45" },
+  arhar: { group: "2", commodity: "45" },
+  orange: { group: "5", commodity: "18" },
+  grapes: { group: "5", commodity: "22" },
+  mango: { group: "5", commodity: "20" },
+  pomegranate: { group: "5", commodity: "160" },
 };
 
 interface PriceRecord {
@@ -116,7 +136,7 @@ function getFreshnessDays(dateStr: string | null): number | null {
 }
 
 function cacheKey(prefix: string, crop: string, state: string, market = "", extra = ""): string {
-  return ["mandimind", "live-v1", prefix, normalize(crop), normalize(state), normalize(market), extra]
+  return ["mandimind", "live-v2", prefix, normalize(crop), normalize(state), normalize(market), extra]
     .filter(Boolean)
     .join(":");
 }
@@ -132,7 +152,7 @@ async function kvGet<T>(env: Env, key: string): Promise<T | null> {
 
 async function kvPut<T>(env: Env, key: string, data: T): Promise<void> {
   if (!env.MANDIMIND_CACHE) return;
-  await env.MANDIMIND_CACHE.put(JSON.stringify ? key : key, JSON.stringify({ ts: Date.now(), data }), { expirationTtl: CACHE_TTL_SECONDS });
+  await env.MANDIMIND_CACHE.put(key, JSON.stringify({ ts: Date.now(), data }), { expirationTtl: CACHE_TTL_SECONDS });
 }
 
 async function fetchAgmarknetDirect(cropId: string, days = 3): Promise<PriceRecord[]> {
@@ -416,7 +436,7 @@ export default {
 
     try {
       if (url.pathname === "/" || url.pathname === "/api/health") {
-        return json({ ok: true, service: "mandimind-api", engine: "agmarknet-direct-primary" });
+        return json({ ok: true, service: "mandimind-api", engine: "agmarknet-direct-primary", cropCount: Object.keys(CROP_MAP).length });
       }
       if (url.pathname === "/api/compare") return handleCompare(url.searchParams, env);
       if (url.pathname === "/api/prices") return handlePrices(url.searchParams, env);
